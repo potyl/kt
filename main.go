@@ -12,8 +12,20 @@ import (
 )
 
 func main() {
+	var kubeContext string
+	for i, arg := range os.Args[1:] {
+		if arg == "--context" && i+1 < len(os.Args[1:]) {
+			kubeContext = os.Args[i+2]
+		}
+	}
+
 	kubeConfig := filepath.Join(homeDir(), ".kube", "config")
-	config, err := clientcmd.BuildConfigFromFlags("", kubeConfig)
+	loadingRules := &clientcmd.ClientConfigLoadingRules{ExplicitPath: kubeConfig}
+	overrides := &clientcmd.ConfigOverrides{}
+	if kubeContext != "" {
+		overrides.CurrentContext = kubeContext
+	}
+	config, err := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(loadingRules, overrides).ClientConfig()
 	if err != nil {
 		panic(err.Error())
 	}
@@ -29,8 +41,9 @@ func main() {
 	}
 
 	fmt.Printf("Found %d pods:\n", len(pods.Items))
+	fmt.Printf("%-27s %s\n", "NAMESPACE", "NAME")
 	for _, pod := range pods.Items {
-		fmt.Printf("- [%s] %s\n", pod.Namespace, pod.Name)
+		fmt.Printf("%-27s %s\n", pod.Namespace, pod.Name)
 	}
 }
 
