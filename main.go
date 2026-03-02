@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
@@ -17,9 +19,9 @@ Usage:
   kt [flags]
 
 Flags:
-  --context string      kubectl context to use (default: current context)
+  --context string        kubectl context to use (default: current context)
   -n, --namespace string  namespace to list pods from (default: all namespaces)
-  -h, --help            show this help message
+  -h, --help              show this help message
 `
 
 func main() {
@@ -62,11 +64,100 @@ func main() {
 		panic(err.Error())
 	}
 
-	fmt.Printf("Found %d pods:\n", len(pods.Items))
-	fmt.Printf("%-27s %s\n", "NAMESPACE", "NAME")
+	fmt.Printf("%-27s %-47s %-7s %-20s %-12s %s\n", "NAMESPACE", "NAME", "READY", "STATUS", "RESTARTS", "AGE")
 	for _, pod := range pods.Items {
-		fmt.Printf("%-27s %s\n", pod.Namespace, pod.Name)
+		fmt.Printf("%-27s %-47s %-7s %-20s %-12s %s\n",
+			pod.Namespace,
+			pod.Name,
+			podReady(pod),
+			podStatus(pod),
+			podRestarts(pod),
+			humanDuration(time.Since(pod.CreationTimestamp.Time)),
+		)
 	}
+}
+
+func podReady(pod corev1.Pod) string {
+	ready := 0
+	for _, cs := range pod.Status.ContainerStatuses {
+		if cs.Ready {
+			ready++
+		}
+	}
+	return fmt.Sprintf("%d/%d", ready, len(pod.Spec.Containers))
+}
+
+func podStatus(pod corev1.Pod) string {
+	if pod.DeletionTimestamp != nil {
+		return "Terminating"
+	}
+	for i, cs := range pod.Status.InitContainerStatuses {
+		if cs.Ready {
+			continue
+		}
+		if cs.State.Terminated != nil && cs.State.Terminated.ExitCode != 0 {
+			return fmt.Sprintf("Init:ExitCode:%d", cs.State.Terminated.ExitCode)
+		}
+		if cs.State.Waiting != nil && cs.State.Waiting.Reason != "" && cs.State.Waiting.Reason != "PodInitializing" {
+			return fmt.Sprintf("Init:%s", cs.State.Waiting.Reason)
+		}
+		return fmt.Sprintf("Init:%d/%d", i, len(pod.Spec.InitContainers))
+	}
+	for _, cs := range pod.Status.ContainerStatuses {
+		if cs.State.Waiting != nil && cs.State.Waiting.Reason != "" {
+			return cs.State.Waiting.Reason
+		}
+		if cs.State.Terminated != nil {
+			if cs.State.Terminated.Reason != "" {
+				return cs.State.Terminated.Reason
+			}
+			if cs.State.Terminated.ExitCode != 0 {
+				return "Error"
+			}
+		}
+	}
+	if pod.Status.Phase != "" {
+		return string(pod.Status.Phase)
+	}
+	return "Unknown"
+}
+
+func podRestarts(pod corev1.Pod) string {
+	var total int32
+	var lastRestart *time.Time
+	for _, cs := range pod.Status.ContainerStatuses {
+		total += cs.RestartCount
+		if cs.LastTerminationState.Terminated != nil {
+			t := cs.LastTerminationState.Terminated.FinishedAt.Time
+			if lastRestart == nil || t.After(*lastRestart) {
+				lastRestart = &t
+			}
+		}
+	}
+	if total > 0 && lastRestart != nil {
+		return fmt.Sprintf("%d (%s ago)", total, humanDuration(time.Since(*lastRestart)))
+	}
+	return fmt.Sprintf("%d", total)
+}
+
+func humanDuration(d time.Duration) string {
+	if d < 0 {
+		return "0s"
+	}
+	if s := int(d.Seconds()); s < 60 {
+		return fmt.Sprintf("%ds", s)
+	}
+	if m := int(d.Minutes()); m < 60 {
+		return fmt.Sprintf("%dm", m)
+	}
+	if h := int(d.Hours()); h < 24 {
+		return fmt.Sprintf("%dh", h)
+	}
+	days := int(d.Hours() / 24)
+	if days < 365 {
+		return fmt.Sprintf("%dd", days)
+	}
+	return fmt.Sprintf("%dy", days/365)
 }
 
 func homeDir() string {
