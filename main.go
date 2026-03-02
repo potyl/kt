@@ -78,27 +78,47 @@ func main() {
 
 	red := color.New(color.FgRed, color.Bold).SprintFunc()
 
+	type podRow struct {
+		namespace, name, ready, status, restarts, age string
+	}
+
 	statusCounts := map[string]int{}
-	var problematic []corev1.Pod
+	var rows []podRow
 	for _, pod := range pods.Items {
 		status := podStatus(pod)
 		statusCounts[status]++
 		if !healthyStatuses[status] {
-			problematic = append(problematic, pod)
+			rows = append(rows, podRow{
+				namespace: pod.Namespace,
+				name:      pod.Name,
+				ready:     podReady(pod),
+				status:    status,
+				restarts:  podRestarts(pod),
+				age:       humanDuration(time.Since(pod.CreationTimestamp.Time)),
+			})
 		}
 	}
 
-	if len(problematic) > 0 {
-		fmt.Printf("%-27s %-47s %-7s %-20s %-12s %s\n", "NAMESPACE", "NAME", "READY", "STATUS", "RESTARTS", "AGE")
-		for _, pod := range problematic {
-			status := podStatus(pod)
-			fmt.Printf("%-27s %-47s %-7s %s %-12s %s\n",
-				pod.Namespace,
-				pod.Name,
-				podReady(pod),
-				red(fmt.Sprintf("%-20s", status)),
-				podRestarts(pod),
-				humanDuration(time.Since(pod.CreationTimestamp.Time)),
+	if len(rows) > 0 {
+		// compute max width per column, seeded with header lengths
+		w := [5]int{len("NAMESPACE"), len("NAME"), len("READY"), len("STATUS"), len("RESTARTS")}
+		for _, r := range rows {
+			w[0] = max(w[0], len(r.namespace))
+			w[1] = max(w[1], len(r.name))
+			w[2] = max(w[2], len(r.ready))
+			w[3] = max(w[3], len(r.status))
+			w[4] = max(w[4], len(r.restarts))
+		}
+
+		headerFmt := fmt.Sprintf("%%-%ds  %%-%ds  %%-%ds  %%-%ds  %%-%ds  %%s\n", w[0], w[1], w[2], w[3], w[4])
+		rowFmt := fmt.Sprintf("%%-%ds  %%-%ds  %%-%ds  %%s  %%-%ds  %%s\n", w[0], w[1], w[2], w[4])
+
+		fmt.Printf(headerFmt, "NAMESPACE", "NAME", "READY", "STATUS", "RESTARTS", "AGE")
+		for _, r := range rows {
+			fmt.Printf(
+				rowFmt, r.namespace, r.name, r.ready,
+				red(fmt.Sprintf("%-*s", w[3], r.status)),
+				r.restarts, r.age,
 			)
 		}
 		fmt.Println()
