@@ -5,13 +5,25 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"time"
 
+	"github.com/fatih/color"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
 )
+
+var healthyStatuses = map[string]bool{
+	"ContainerCreating": true,
+	"Pending":           true,
+	"PodInitializing":   true,
+	"Running":           true,
+	"Succeeded":         true,
+	"Terminating":       true,
+	"Completed":         true,
+}
 
 const usage = `kt - list pods across all namespaces
 
@@ -64,16 +76,43 @@ func main() {
 		panic(err.Error())
 	}
 
-	fmt.Printf("%-27s %-47s %-7s %-20s %-12s %s\n", "NAMESPACE", "NAME", "READY", "STATUS", "RESTARTS", "AGE")
+	red := color.New(color.FgRed, color.Bold).SprintFunc()
+
+	statusCounts := map[string]int{}
+	var problematic []corev1.Pod
 	for _, pod := range pods.Items {
-		fmt.Printf("%-27s %-47s %-7s %-20s %-12s %s\n",
-			pod.Namespace,
-			pod.Name,
-			podReady(pod),
-			podStatus(pod),
-			podRestarts(pod),
-			humanDuration(time.Since(pod.CreationTimestamp.Time)),
-		)
+		status := podStatus(pod)
+		statusCounts[status]++
+		if !healthyStatuses[status] {
+			problematic = append(problematic, pod)
+		}
+	}
+
+	if len(problematic) > 0 {
+		fmt.Printf("%-27s %-47s %-7s %-20s %-12s %s\n", "NAMESPACE", "NAME", "READY", "STATUS", "RESTARTS", "AGE")
+		for _, pod := range problematic {
+			status := podStatus(pod)
+			fmt.Printf("%-27s %-47s %-7s %s %-12s %s\n",
+				pod.Namespace,
+				pod.Name,
+				podReady(pod),
+				red(fmt.Sprintf("%-20s", status)),
+				podRestarts(pod),
+				humanDuration(time.Since(pod.CreationTimestamp.Time)),
+			)
+		}
+		fmt.Println()
+	}
+
+	statuses := make([]string, 0, len(statusCounts))
+	for s := range statusCounts {
+		statuses = append(statuses, s)
+	}
+	sort.Strings(statuses)
+
+	fmt.Println("Pods")
+	for _, s := range statuses {
+		fmt.Printf("  %6d %s\n", statusCounts[s], s)
 	}
 }
 
