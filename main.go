@@ -15,6 +15,24 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 )
 
+var (
+	colorRed   = color.New(color.FgRed, color.Bold).SprintFunc()
+	colorGreen = color.New(color.FgGreen, color.Bold).SprintFunc()
+	colorBlue  = color.New(color.FgBlue, color.Bold).SprintFunc()
+)
+
+func archColor(arch string, width int) string {
+	padded := fmt.Sprintf("%-*s", width, arch)
+	switch arch {
+	case "arm64":
+		return colorGreen(padded)
+	case "amd64":
+		return colorBlue(padded)
+	default:
+		return padded
+	}
+}
+
 var healthyStatuses = map[string]bool{
 	"ContainerCreating": true,
 	"Pending":           true,
@@ -71,15 +89,47 @@ func main() {
 		panic(err.Error())
 	}
 
-	pods, err := clientSet.CoreV1().Pods(namespace).List(context.TODO(), metav1.ListOptions{})
-	if err != nil {
-		panic(err.Error())
+	type podListResult struct {
+		list *corev1.PodList
+		err  error
+	}
+	type nodeListResult struct {
+		list *corev1.NodeList
+		err  error
 	}
 
-	red := color.New(color.FgRed, color.Bold).SprintFunc()
+	podsCh := make(chan podListResult, 1)
+	nodesCh := make(chan nodeListResult, 1)
+
+	go func() {
+		list, err := clientSet.CoreV1().Pods(namespace).List(context.TODO(), metav1.ListOptions{})
+		podsCh <- podListResult{list, err}
+	}()
+	go func() {
+		list, err := clientSet.CoreV1().Nodes().List(context.TODO(), metav1.ListOptions{})
+		nodesCh <- nodeListResult{list, err}
+	}()
+
+	podsResult := <-podsCh
+	nodesResult := <-nodesCh
+
+	if podsResult.err != nil {
+		panic(podsResult.err.Error())
+	}
+	if nodesResult.err != nil {
+		panic(nodesResult.err.Error())
+	}
+
+	pods := podsResult.list
+	nodes := nodesResult.list
+
+	nodeArch := make(map[string]string, len(nodes.Items))
+	for _, node := range nodes.Items {
+		nodeArch[node.Name] = node.Labels["kubernetes.io/arch"]
+	}
 
 	type podRow struct {
-		namespace, name, ready, status, restarts, age string
+		namespace, name, ready, status, restarts, age, arch string
 	}
 
 	statusCounts := map[string]int{}
@@ -95,29 +145,34 @@ func main() {
 				status:    status,
 				restarts:  podRestarts(pod),
 				age:       humanDuration(time.Since(pod.CreationTimestamp.Time)),
+				arch:      nodeArch[pod.Spec.NodeName],
 			})
 		}
 	}
 
 	if len(rows) > 0 {
 		// compute max width per column, seeded with header lengths
-		w := [5]int{len("NAMESPACE"), len("NAME"), len("READY"), len("STATUS"), len("RESTARTS")}
+		// order: NAMESPACE, NAME, READY, ARCH, STATUS, RESTARTS, AGE
+		w := [7]int{len("NAMESPACE"), len("NAME"), len("READY"), len("ARCH"), len("STATUS"), len("RESTARTS"), len("AGE")}
 		for _, r := range rows {
 			w[0] = max(w[0], len(r.namespace))
 			w[1] = max(w[1], len(r.name))
 			w[2] = max(w[2], len(r.ready))
-			w[3] = max(w[3], len(r.status))
-			w[4] = max(w[4], len(r.restarts))
+			w[3] = max(w[3], len(r.arch))
+			w[4] = max(w[4], len(r.status))
+			w[5] = max(w[5], len(r.restarts))
+			w[6] = max(w[6], len(r.age))
 		}
 
-		headerFmt := fmt.Sprintf("%%-%ds  %%-%ds  %%-%ds  %%-%ds  %%-%ds  %%s\n", w[0], w[1], w[2], w[3], w[4])
-		rowFmt := fmt.Sprintf("%%-%ds  %%-%ds  %%-%ds  %%s  %%-%ds  %%s\n", w[0], w[1], w[2], w[4])
+		headerFmt := fmt.Sprintf("%%-%ds  %%-%ds  %%-%ds  %%-%ds  %%-%ds  %%-%ds  %%s\n", w[0], w[1], w[2], w[3], w[4], w[5])
+		rowFmt := fmt.Sprintf("%%-%ds  %%-%ds  %%-%ds  %%s  %%s  %%-%ds  %%s\n", w[0], w[1], w[2], w[5])
 
-		fmt.Printf(headerFmt, "NAMESPACE", "NAME", "READY", "STATUS", "RESTARTS", "AGE")
+		fmt.Printf(headerFmt, "NAMESPACE", "NAME", "READY", "ARCH", "STATUS", "RESTARTS", "AGE")
 		for _, r := range rows {
 			fmt.Printf(
 				rowFmt, r.namespace, r.name, r.ready,
-				red(fmt.Sprintf("%-*s", w[3], r.status)),
+				archColor(r.arch, w[3]),
+				colorRed(fmt.Sprintf("%-*s", w[4], r.status)),
 				r.restarts, r.age,
 			)
 		}
