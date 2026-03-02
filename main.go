@@ -19,6 +19,7 @@ var (
 	colorRed   = color.New(color.FgRed, color.Bold).SprintFunc()
 	colorGreen = color.New(color.FgGreen, color.Bold).SprintFunc()
 	colorBlue  = color.New(color.FgBlue, color.Bold).SprintFunc()
+	colorCyan  = color.New(color.FgCyan, color.Bold).SprintFunc()
 )
 
 func archColor(arch string, width int) string {
@@ -27,7 +28,7 @@ func archColor(arch string, width int) string {
 	case "arm64":
 		return colorGreen(padded)
 	case "amd64":
-		return colorBlue(padded)
+		return colorCyan(padded)
 	default:
 		return padded
 	}
@@ -164,10 +165,17 @@ func main() {
 			w[6] = max(w[6], len(r.age))
 		}
 
-		headerFmt := fmt.Sprintf("%%-%ds  %%-%ds  %%-%ds  %%-%ds  %%-%ds  %%-%ds  %%s\n", w[0], w[1], w[2], w[3], w[4], w[5])
 		rowFmt := fmt.Sprintf("%%-%ds  %%-%ds  %%-%ds  %%s  %%s  %%-%ds  %%s\n", w[0], w[1], w[2], w[5])
 
-		fmt.Printf(headerFmt, "NAMESPACE", "NAME", "READY", "ARCH", "STATUS", "RESTARTS", "AGE")
+		fmt.Printf("%s  %s  %s  %s  %s  %s  %s\n",
+			colorBlue(fmt.Sprintf("%-*s", w[0], "NAMESPACE")),
+			colorBlue(fmt.Sprintf("%-*s", w[1], "NAME")),
+			colorBlue(fmt.Sprintf("%-*s", w[2], "READY")),
+			colorBlue(fmt.Sprintf("%-*s", w[3], "ARCH")),
+			colorBlue(fmt.Sprintf("%-*s", w[4], "STATUS")),
+			colorBlue(fmt.Sprintf("%-*s", w[5], "RESTARTS")),
+			colorBlue("AGE"),
+		)
 		for _, r := range rows {
 			fmt.Printf(
 				rowFmt, r.namespace, r.name, r.ready,
