@@ -185,9 +185,9 @@ func main() {
 	}
 	sort.Strings(statuses)
 
-	fmt.Println("Pods")
+	fmt.Println(colorBlue("Pods"))
 	for _, s := range statuses {
-		fmt.Printf("  %6d %s\n", statusCounts[s], s)
+		fmt.Printf("  %6d %s\n", statusCounts[s], colorGreen(s))
 	}
 }
 
