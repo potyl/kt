@@ -144,20 +144,36 @@ func humanDuration(d time.Duration) string {
 	if d < 0 {
 		return "0s"
 	}
-	if s := int(d.Seconds()); s < 60 {
+	s := int(d.Seconds())
+	if s < 60 {
 		return fmt.Sprintf("%ds", s)
 	}
-	if m := int(d.Minutes()); m < 60 {
+	m := int(d.Minutes())
+	if m < 60 {
+		if rem := s % 60; rem != 0 {
+			return fmt.Sprintf("%dm%ds", m, rem)
+		}
 		return fmt.Sprintf("%dm", m)
 	}
-	if h := int(d.Hours()); h < 24 {
+	h := int(d.Hours())
+	if h < 24 {
+		if rem := m % 60; rem != 0 {
+			return fmt.Sprintf("%dh%dm", h, rem)
+		}
 		return fmt.Sprintf("%dh", h)
 	}
 	days := int(d.Hours() / 24)
 	if days < 365 {
+		if rem := h % 24; rem != 0 {
+			return fmt.Sprintf("%dd%dh", days, rem)
+		}
 		return fmt.Sprintf("%dd", days)
 	}
-	return fmt.Sprintf("%dy", days/365)
+	years := days / 365
+	if rem := days % 365; rem != 0 {
+		return fmt.Sprintf("%dy%dd", years, rem)
+	}
+	return fmt.Sprintf("%dy", years)
 }
 
 func homeDir() string {
