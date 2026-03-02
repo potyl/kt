@@ -1,0 +1,56 @@
+version: 2
+
+project_name: kt
+
+before:
+  hooks:
+    - go mod download
+
+builds:
+  - id: kt
+    main: ./main.go
+    binary: kt
+    ldflags:
+      - -s -w -X main.version={{.Version}}
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ignore:
+      - goos: darwin
+        goarch: amd64
+      - goos: windows
+        goarch: arm64
+
+archives:
+  - name_template: "{{ .ProjectName }}-{{ .Os }}-{{ .Arch }}"
+    format_overrides:
+      - goos: windows
+        formats:
+          - zip
+    files:
+      - none*
+
+checksum:
+  name_template: checksums.txt
+
+release:
+  mode: keep-existing
+
+changelog:
+  abbrev: 7
+  sort: asc
+  format: "{{.SHA}}: {{.Message}}"
+  filters:
+    exclude:
+      - "^ci:"
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+      - Merge pull request
+      - Merge branch
