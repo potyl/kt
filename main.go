@@ -17,12 +17,13 @@ Usage:
   kt [flags]
 
 Flags:
-  --context string   kubectl context to use (default: current context)
-  -h, --help         show this help message
+  --context string      kubectl context to use (default: current context)
+  -n, --namespace string  namespace to list pods from (default: all namespaces)
+  -h, --help            show this help message
 `
 
 func main() {
-	var kubeContext string
+	var kubeContext, namespace string
 	args := os.Args[1:]
 	for i, arg := range args {
 		switch arg {
@@ -32,6 +33,10 @@ func main() {
 		case "--context":
 			if i+1 < len(args) {
 				kubeContext = args[i+1]
+			}
+		case "-n", "--namespace":
+			if i+1 < len(args) {
+				namespace = args[i+1]
 			}
 		}
 	}
@@ -52,7 +57,7 @@ func main() {
 		panic(err.Error())
 	}
 
-	pods, err := clientSet.CoreV1().Pods("").List(context.TODO(), metav1.ListOptions{})
+	pods, err := clientSet.CoreV1().Pods(namespace).List(context.TODO(), metav1.ListOptions{})
 	if err != nil {
 		panic(err.Error())
 	}
