@@ -11,11 +11,28 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 )
 
+const usage = `kt - list pods across all namespaces
+
+Usage:
+  kt [flags]
+
+Flags:
+  --context string   kubectl context to use (default: current context)
+  -h, --help         show this help message
+`
+
 func main() {
 	var kubeContext string
-	for i, arg := range os.Args[1:] {
-		if arg == "--context" && i+1 < len(os.Args[1:]) {
-			kubeContext = os.Args[i+2]
+	args := os.Args[1:]
+	for i, arg := range args {
+		switch arg {
+		case "-h", "--help":
+			fmt.Print(usage)
+			os.Exit(0)
+		case "--context":
+			if i+1 < len(args) {
+				kubeContext = args[i+1]
+			}
 		}
 	}
 
