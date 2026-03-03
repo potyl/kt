@@ -35,6 +35,7 @@ var healthyStatuses = map[string]bool{
 }
 
 var namespace string
+var allPods bool
 
 var podsCmd = &cobra.Command{
 	Use:   "pods",
@@ -45,6 +46,7 @@ var podsCmd = &cobra.Command{
 func init() {
 	rootCmd.AddCommand(podsCmd)
 	podsCmd.Flags().StringVarP(&namespace, "namespace", "n", "", "namespace to list pods from (default: all namespaces)")
+	podsCmd.Flags().BoolVarP(&allPods, "all", "a", false, "list all pods, not just unhealthy ones")
 }
 
 func runPods(_ *cobra.Command, _ []string) error {
@@ -114,7 +116,7 @@ func runPods(_ *cobra.Command, _ []string) error {
 	for _, pod := range pods.Items {
 		status := podStatus(pod)
 		statusCounts[status]++
-		if !healthyStatuses[status] {
+		if allPods || !healthyStatuses[status] {
 			rows = append(rows, podRow{
 				namespace: pod.Namespace,
 				name:      pod.Name,
@@ -158,7 +160,7 @@ func runPods(_ *cobra.Command, _ []string) error {
 				rowFmt, r.namespace, r.name, r.ready,
 				archColor(r.arch, w[3]),
 				nodepoolColor(r.nodepool, w[4]),
-				colorRed(fmt.Sprintf("%-*s", w[5], r.status)),
+				statusColor(r.status, w[5]),
 				r.restarts, r.age,
 			)
 		}
@@ -191,10 +193,18 @@ func archColor(arch string, width int) string {
 	}
 }
 
+func statusColor(status string, width int) string {
+	padded := fmt.Sprintf("%-*s", width, status)
+	if !healthyStatuses[status] {
+		return colorRed(padded)
+	}
+	return padded
+}
+
 func nodepoolColor(nodepool string, width int) string {
 	for _, arch := range []string{"arm64", "amd64"} {
-		idx := strings.Index(nodepool, arch)
-		if idx == -1 {
+		before, after, found := strings.Cut(nodepool, arch)
+		if !found {
 			continue
 		}
 		var coloredArch string
@@ -203,7 +213,7 @@ func nodepoolColor(nodepool string, width int) string {
 		} else {
 			coloredArch = colorCyan(arch)
 		}
-		result := nodepool[:idx] + coloredArch + nodepool[idx+len(arch):]
+		result := before + coloredArch + after
 		if pad := width - len(nodepool); pad > 0 {
 			result += strings.Repeat(" ", pad)
 		}
