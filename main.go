@@ -52,11 +52,13 @@ Usage:
 Flags:
   --context string        kubectl context to use (default: current context)
   -n, --namespace string  namespace to list pods from (default: all namespaces)
+  --color string          color output: always, auto, none (default: always)
   -h, --help              show this help message
 `
 
 func main() {
 	var kubeContext, namespace string
+	colorMode := "always"
 	args := os.Args[1:]
 	for i, arg := range args {
 		switch arg {
@@ -71,7 +73,23 @@ func main() {
 			if i+1 < len(args) {
 				namespace = args[i+1]
 			}
+		case "--color":
+			if i+1 < len(args) {
+				colorMode = args[i+1]
+			}
 		}
+	}
+
+	switch colorMode {
+	case "always":
+		color.NoColor = false
+	case "none":
+		color.NoColor = true
+	case "auto":
+		// let fatih/color decide based on TTY detection (its default)
+	default:
+		fmt.Fprintf(os.Stderr, "invalid --color value %q: must be always, auto, or none\n", colorMode)
+		os.Exit(1)
 	}
 
 	kubeConfig := filepath.Join(homeDir(), ".kube", "config")
