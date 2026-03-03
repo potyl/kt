@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/fatih/color"
@@ -98,12 +99,14 @@ func runPods(_ *cobra.Command, _ []string) error {
 	nodes := nodesResult.list
 
 	nodeArch := make(map[string]string, len(nodes.Items))
+	nodePool := make(map[string]string, len(nodes.Items))
 	for _, node := range nodes.Items {
 		nodeArch[node.Name] = node.Labels["kubernetes.io/arch"]
+		nodePool[node.Name] = node.Labels["karpenter.sh/nodepool"]
 	}
 
 	type podRow struct {
-		namespace, name, ready, status, restarts, age, arch string
+		namespace, name, ready, status, restarts, age, arch, nodepool string
 	}
 
 	statusCounts := map[string]int{}
@@ -120,38 +123,42 @@ func runPods(_ *cobra.Command, _ []string) error {
 				restarts:  podRestarts(pod),
 				age:       humanDuration(time.Since(pod.CreationTimestamp.Time)),
 				arch:      nodeArch[pod.Spec.NodeName],
+				nodepool:  nodePool[pod.Spec.NodeName],
 			})
 		}
 	}
 
 	if len(rows) > 0 {
-		w := [7]int{len("NAMESPACE"), len("NAME"), len("READY"), len("ARCH"), len("STATUS"), len("RESTARTS"), len("AGE")}
+		w := [8]int{len("NAMESPACE"), len("NAME"), len("READY"), len("ARCH"), len("NODEPOOL"), len("STATUS"), len("RESTARTS"), len("AGE")}
 		for _, r := range rows {
 			w[0] = max(w[0], len(r.namespace))
 			w[1] = max(w[1], len(r.name))
 			w[2] = max(w[2], len(r.ready))
 			w[3] = max(w[3], len(r.arch))
-			w[4] = max(w[4], len(r.status))
-			w[5] = max(w[5], len(r.restarts))
-			w[6] = max(w[6], len(r.age))
+			w[4] = max(w[4], len(r.nodepool))
+			w[5] = max(w[5], len(r.status))
+			w[6] = max(w[6], len(r.restarts))
+			w[7] = max(w[7], len(r.age))
 		}
 
-		rowFmt := fmt.Sprintf("%%-%ds  %%-%ds  %%-%ds  %%s  %%s  %%-%ds  %%s\n", w[0], w[1], w[2], w[5])
+		rowFmt := fmt.Sprintf("%%-%ds  %%-%ds  %%-%ds  %%s  %%s  %%s  %%-%ds  %%s\n", w[0], w[1], w[2], w[6])
 
-		fmt.Printf("%s  %s  %s  %s  %s  %s  %s\n",
+		fmt.Printf("%s  %s  %s  %s  %s  %s  %s  %s\n",
 			colorBlue(fmt.Sprintf("%-*s", w[0], "NAMESPACE")),
 			colorBlue(fmt.Sprintf("%-*s", w[1], "NAME")),
 			colorBlue(fmt.Sprintf("%-*s", w[2], "READY")),
 			colorBlue(fmt.Sprintf("%-*s", w[3], "ARCH")),
-			colorBlue(fmt.Sprintf("%-*s", w[4], "STATUS")),
-			colorBlue(fmt.Sprintf("%-*s", w[5], "RESTARTS")),
+			colorBlue(fmt.Sprintf("%-*s", w[4], "NODEPOOL")),
+			colorBlue(fmt.Sprintf("%-*s", w[5], "STATUS")),
+			colorBlue(fmt.Sprintf("%-*s", w[6], "RESTARTS")),
 			colorBlue("AGE"),
 		)
 		for _, r := range rows {
 			fmt.Printf(
 				rowFmt, r.namespace, r.name, r.ready,
 				archColor(r.arch, w[3]),
-				colorRed(fmt.Sprintf("%-*s", w[4], r.status)),
+				nodepoolColor(r.nodepool, w[4]),
+				colorRed(fmt.Sprintf("%-*s", w[5], r.status)),
 				r.restarts, r.age,
 			)
 		}
@@ -182,6 +189,27 @@ func archColor(arch string, width int) string {
 	default:
 		return padded
 	}
+}
+
+func nodepoolColor(nodepool string, width int) string {
+	for _, arch := range []string{"arm64", "amd64"} {
+		idx := strings.Index(nodepool, arch)
+		if idx == -1 {
+			continue
+		}
+		var coloredArch string
+		if arch == "arm64" {
+			coloredArch = colorGreen(arch)
+		} else {
+			coloredArch = colorCyan(arch)
+		}
+		result := nodepool[:idx] + coloredArch + nodepool[idx+len(arch):]
+		if pad := width - len(nodepool); pad > 0 {
+			result += strings.Repeat(" ", pad)
+		}
+		return result
+	}
+	return fmt.Sprintf("%-*s", width, nodepool)
 }
 
 func podReady(pod corev1.Pod) string {
