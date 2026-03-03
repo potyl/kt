@@ -3,25 +3,15 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"os"
 	"path/filepath"
 	"sort"
-	"strings"
 	"time"
 
-	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
-)
-
-var (
-	colorRed   = color.New(color.FgRed, color.Bold).SprintFunc()
-	colorGreen = color.New(color.FgGreen, color.Bold).SprintFunc()
-	colorBlue  = color.New(color.FgBlue, color.Bold).SprintFunc()
-	colorCyan  = color.New(color.FgCyan, color.Bold).SprintFunc()
 )
 
 var healthyStatuses = map[string]bool{
@@ -181,45 +171,12 @@ func runPods(_ *cobra.Command, _ []string) error {
 	return nil
 }
 
-func archColor(arch string, width int) string {
-	padded := fmt.Sprintf("%-*s", width, arch)
-	switch arch {
-	case "arm64":
-		return colorGreen(padded)
-	case "amd64":
-		return colorCyan(padded)
-	default:
-		return padded
-	}
-}
-
 func statusColor(status string, width int) string {
 	padded := fmt.Sprintf("%-*s", width, status)
 	if !healthyStatuses[status] {
 		return colorRed(padded)
 	}
 	return padded
-}
-
-func nodepoolColor(nodepool string, width int) string {
-	for _, arch := range []string{"arm64", "amd64"} {
-		before, after, found := strings.Cut(nodepool, arch)
-		if !found {
-			continue
-		}
-		var coloredArch string
-		if arch == "arm64" {
-			coloredArch = colorGreen(arch)
-		} else {
-			coloredArch = colorCyan(arch)
-		}
-		result := before + coloredArch + after
-		if pad := width - len(nodepool); pad > 0 {
-			result += strings.Repeat(" ", pad)
-		}
-		return result
-	}
-	return fmt.Sprintf("%-*s", width, nodepool)
 }
 
 func podReady(pod corev1.Pod) string {
@@ -283,48 +240,4 @@ func podRestarts(pod corev1.Pod) string {
 		return fmt.Sprintf("%d (%s ago)", total, humanDuration(time.Since(*lastRestart)))
 	}
 	return fmt.Sprintf("%d", total)
-}
-
-func humanDuration(d time.Duration) string {
-	if d < 0 {
-		return "0s"
-	}
-	s := int(d.Seconds())
-	if s < 60 {
-		return fmt.Sprintf("%ds", s)
-	}
-	m := int(d.Minutes())
-	if m < 60 {
-		if rem := s % 60; rem != 0 {
-			return fmt.Sprintf("%dm%ds", m, rem)
-		}
-		return fmt.Sprintf("%dm", m)
-	}
-	h := int(d.Hours())
-	if h < 24 {
-		if rem := m % 60; rem != 0 {
-			return fmt.Sprintf("%dh%dm", h, rem)
-		}
-		return fmt.Sprintf("%dh", h)
-	}
-	days := int(d.Hours() / 24)
-	if days < 365 {
-		if rem := h % 24; rem != 0 {
-			return fmt.Sprintf("%dd%dh", days, rem)
-		}
-		return fmt.Sprintf("%dd", days)
-	}
-	years := days / 365
-	if rem := days % 365; rem != 0 {
-		return fmt.Sprintf("%dy%dd", years, rem)
-	}
-	return fmt.Sprintf("%dy", years)
-}
-
-func homeDir() string {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		panic("could not determine home directory")
-	}
-	return home
 }
