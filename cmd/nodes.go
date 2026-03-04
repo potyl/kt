@@ -124,7 +124,7 @@ func displayNodes(clientSet *kubernetes.Clientset, dynamicClient dynamic.Interfa
 	}
 
 	if len(rows) > 0 {
-		w := [9]int{len("NAME"), len("ARCH"), len("NODEPOOL"), len("INSTANCE"), len("CPUS"), len("MEMORY"), len("PODS"), len("AGE"), len("OS IMAGE")}
+		w := [9]int{len("NODE"), len("ARCH"), len("NODEPOOL"), len("INSTANCE"), len("CPUS"), len("MEMORY"), len("PODS"), len("AGE"), len("OS IMAGE")}
 		for _, r := range rows {
 			w[0] = max(w[0], len(r.name))
 			w[1] = max(w[1], len(r.arch))
@@ -140,7 +140,7 @@ func displayNodes(clientSet *kubernetes.Clientset, dynamicClient dynamic.Interfa
 		rowFmt := fmt.Sprintf("%%-%ds  %%s  %%s  %%-%ds  %%%ds  %%%ds  %%%ds  %%-%ds  %%s\n", w[0], w[3], w[4], w[5], w[6], w[7])
 
 		fmt.Fprintf(out, "%s  %s  %s  %s  %s  %s  %s  %s  %s\n",
-			colorBlue(fmt.Sprintf("%-*s", w[0], "NAME")),
+			colorBlue(fmt.Sprintf("%-*s", w[0], "NODE")),
 			colorBlue(fmt.Sprintf("%-*s", w[1], "ARCH")),
 			colorBlue(fmt.Sprintf("%-*s", w[2], "NODEPOOL")),
 			colorBlue(fmt.Sprintf("%-*s", w[3], "INSTANCE")),
@@ -222,9 +222,7 @@ func displayNodes(clientSet *kubernetes.Clientset, dynamicClient dynamic.Interfa
 	})
 
 	if len(npRows) > 0 {
-		fmt.Fprintln(out, colorBlue("Nodepools"))
-
-		wn := [8]int{len("NAME"), len("NODECLASS"), len("NODES"), len("CPUS"), len("MEMORY"), len("PODS"), len("READY"), len("AGE")}
+		wn := [8]int{len("NODEPOOL"), len("NODECLASS"), len("NODES"), len("CPUS"), len("MEMORY"), len("PODS"), len("READY"), len("AGE")}
 		for _, r := range npRows {
 			wn[0] = max(wn[0], len(r.name))
 			wn[1] = max(wn[1], len(r.nodeclass))
@@ -239,7 +237,7 @@ func displayNodes(clientSet *kubernetes.Clientset, dynamicClient dynamic.Interfa
 		rowFmt := fmt.Sprintf("%%s  %%-%ds  %%%ds  %%%ds  %%%ds  %%%ds  %%-%ds  %%s\n", wn[1], wn[2], wn[3], wn[4], wn[5], wn[6])
 
 		fmt.Fprintf(out, "%s  %s  %s  %s  %s  %s  %s  %s\n",
-			colorBlue(fmt.Sprintf("%-*s", wn[0], "NAME")),
+			colorBlue(fmt.Sprintf("%-*s", wn[0], "NODEPOOL")),
 			colorBlue(fmt.Sprintf("%-*s", wn[1], "NODECLASS")),
 			colorBlue(fmt.Sprintf("%*s", wn[2], "NODES")),
 			colorBlue(fmt.Sprintf("%*s", wn[3], "CPUS")),
