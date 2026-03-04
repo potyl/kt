@@ -156,7 +156,7 @@ func displayPods(clientSet *kubernetes.Clientset, out io.Writer) error {
 	}
 
 	if len(rows) > 0 {
-		w := [9]int{len("NAMESPACE"), len("NAME"), len("KIND"), len("READY"), len("ARCH"), len("NODEPOOL"), len("STATUS"), len("RESTARTS"), len("AGE")}
+		w := [9]int{len("NAMESPACE"), len("POD"), len("KIND"), len("READY"), len("ARCH"), len("NODEPOOL"), len("STATUS"), len("RESTARTS"), len("AGE")}
 		for _, r := range rows {
 			w[0] = max(w[0], len(r.namespace))
 			w[1] = max(w[1], len(r.name))
@@ -173,7 +173,7 @@ func displayPods(clientSet *kubernetes.Clientset, out io.Writer) error {
 
 		fmt.Fprintf(out, "%s  %s  %s  %s  %s  %s  %s  %s  %s\n",
 			colorBlue(fmt.Sprintf("%-*s", w[0], "NAMESPACE")),
-			colorBlue(fmt.Sprintf("%-*s", w[1], "NAME")),
+			colorBlue(fmt.Sprintf("%-*s", w[1], "POD")),
 			colorBlue(fmt.Sprintf("%-*s", w[2], "KIND")),
 			colorBlue(fmt.Sprintf("%-*s", w[3], "READY")),
 			colorBlue(fmt.Sprintf("%-*s", w[4], "ARCH")),
@@ -200,7 +200,7 @@ func displayPods(clientSet *kubernetes.Clientset, out io.Writer) error {
 	}
 	sort.Strings(statuses)
 
-	fmt.Fprintln(out, colorBlue("Pods"))
+	fmt.Fprintln(out, colorBlue("Summary"))
 	for _, s := range statuses {
 		fmt.Fprintf(out, "  %6d %s\n", statusCounts[s], colorGreen(s))
 	}
