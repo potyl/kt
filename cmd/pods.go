@@ -9,6 +9,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"sort"
+	"strings"
 	"syscall"
 	"time"
 
@@ -194,16 +195,22 @@ func displayPods(clientSet *kubernetes.Clientset, out io.Writer) error {
 		fmt.Fprintln(out)
 	}
 
+	// Summary
 	statuses := make([]string, 0, len(statusCounts))
 	for s := range statusCounts {
 		statuses = append(statuses, s)
 	}
 	sort.Strings(statuses)
 
-	fmt.Fprintln(out, colorBlue("Summary"))
+	parts := make([]string, 0, len(statuses))
 	for _, s := range statuses {
-		fmt.Fprintf(out, "  %6d %s\n", statusCounts[s], colorGreen(s))
+		name := colorGreen(s)
+		if !healthyStatuses[s] {
+			name = colorRed(s)
+		}
+		parts = append(parts, fmt.Sprintf("%s: %d", name, statusCounts[s]))
 	}
+	fmt.Fprintf(out, "%s\n", strings.Join(parts, ", "))
 
 	return nil
 }
