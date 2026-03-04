@@ -1,10 +1,15 @@
 package cmd
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"io"
+	"os"
+	"os/signal"
 	"path/filepath"
 	"sort"
+	"syscall"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -15,6 +20,8 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 )
 
+var nodesWatchInterval float64
+
 var nodesCmd = &cobra.Command{
 	Use:   "nodes",
 	Short: "List nodes",
@@ -23,6 +30,7 @@ var nodesCmd = &cobra.Command{
 
 func init() {
 	rootCmd.AddCommand(nodesCmd)
+	nodesCmd.Flags().Float64VarP(&nodesWatchInterval, "watch", "w", 0, "refresh interval in seconds (0 = run once)")
 }
 
 func runNodes(_ *cobra.Command, _ []string) error {
@@ -47,6 +55,33 @@ func runNodes(_ *cobra.Command, _ []string) error {
 		return fmt.Errorf("failed to create dynamic client: %w", err)
 	}
 
+	if nodesWatchInterval <= 0 {
+		return displayNodes(clientSet, dynamicClient, os.Stdout)
+	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	var lastOutput []byte
+	for {
+		var buf bytes.Buffer
+		if err := displayNodes(clientSet, dynamicClient, &buf); err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		} else {
+			lastOutput = buf.Bytes()
+		}
+		fmt.Print("\033[2J\033[H")
+		fmt.Printf("Every %.1fs: kt nodes    %s\n\n", nodesWatchInterval, time.Now().Format("Mon Jan 2 15:04:05 2006"))
+		os.Stdout.Write(lastOutput)
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-time.After(time.Duration(float64(time.Second) * nodesWatchInterval)):
+		}
+	}
+}
+
+func displayNodes(clientSet *kubernetes.Clientset, dynamicClient dynamic.Interface, out io.Writer) error {
 	nodes, err := clientSet.CoreV1().Nodes().List(context.TODO(), metav1.ListOptions{})
 	if err != nil {
 		return fmt.Errorf("failed to list nodes: %w", err)
@@ -104,7 +139,7 @@ func runNodes(_ *cobra.Command, _ []string) error {
 
 		rowFmt := fmt.Sprintf("%%-%ds  %%s  %%s  %%-%ds  %%%ds  %%%ds  %%%ds  %%-%ds  %%s\n", w[0], w[3], w[4], w[5], w[6], w[7])
 
-		fmt.Printf("%s  %s  %s  %s  %s  %s  %s  %s  %s\n",
+		fmt.Fprintf(out, "%s  %s  %s  %s  %s  %s  %s  %s  %s\n",
 			colorBlue(fmt.Sprintf("%-*s", w[0], "NAME")),
 			colorBlue(fmt.Sprintf("%-*s", w[1], "ARCH")),
 			colorBlue(fmt.Sprintf("%-*s", w[2], "NODEPOOL")),
@@ -116,14 +151,14 @@ func runNodes(_ *cobra.Command, _ []string) error {
 			colorBlue("OS IMAGE"),
 		)
 		for _, r := range rows {
-			fmt.Printf(rowFmt,
+			fmt.Fprintf(out, rowFmt,
 				r.name,
 				archColor(r.arch, w[1]),
 				nodepoolColor(r.nodepool, w[2]),
 				r.instance, r.cpus, r.memory, r.pods, r.age, r.osImage,
 			)
 		}
-		fmt.Println()
+		fmt.Fprintln(out)
 	}
 
 	// Nodepools section via Karpenter API
@@ -187,7 +222,7 @@ func runNodes(_ *cobra.Command, _ []string) error {
 	})
 
 	if len(npRows) > 0 {
-		fmt.Println(colorBlue("Nodepools"))
+		fmt.Fprintln(out, colorBlue("Nodepools"))
 
 		wn := [8]int{len("NAME"), len("NODECLASS"), len("NODES"), len("CPUS"), len("MEMORY"), len("PODS"), len("READY"), len("AGE")}
 		for _, r := range npRows {
@@ -203,7 +238,7 @@ func runNodes(_ *cobra.Command, _ []string) error {
 
 		rowFmt := fmt.Sprintf("%%s  %%-%ds  %%%ds  %%%ds  %%%ds  %%%ds  %%-%ds  %%s\n", wn[1], wn[2], wn[3], wn[4], wn[5], wn[6])
 
-		fmt.Printf("%s  %s  %s  %s  %s  %s  %s  %s\n",
+		fmt.Fprintf(out, "%s  %s  %s  %s  %s  %s  %s  %s\n",
 			colorBlue(fmt.Sprintf("%-*s", wn[0], "NAME")),
 			colorBlue(fmt.Sprintf("%-*s", wn[1], "NODECLASS")),
 			colorBlue(fmt.Sprintf("%*s", wn[2], "NODES")),
@@ -214,7 +249,7 @@ func runNodes(_ *cobra.Command, _ []string) error {
 			colorBlue("AGE"),
 		)
 		for _, r := range npRows {
-			fmt.Printf(rowFmt,
+			fmt.Fprintf(out, rowFmt,
 				nodepoolColor(r.name, wn[0]),
 				r.nodeclass, r.nodes, r.cpus, r.memory, r.pods, r.ready, r.age,
 			)
