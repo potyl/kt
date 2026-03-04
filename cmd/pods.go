@@ -98,7 +98,7 @@ func runPods(_ *cobra.Command, _ []string) error {
 	}
 
 	type podRow struct {
-		namespace, name, ready, status, restarts, age, arch, nodepool string
+		namespace, name, kind, ready, status, restarts, age, arch, nodepool string
 	}
 
 	statusCounts := map[string]int{}
@@ -110,6 +110,7 @@ func runPods(_ *cobra.Command, _ []string) error {
 			rows = append(rows, podRow{
 				namespace: pod.Namespace,
 				name:      pod.Name,
+				kind:      podKind(pod),
 				ready:     podReady(pod),
 				status:    status,
 				restarts:  podRestarts(pod),
@@ -121,36 +122,38 @@ func runPods(_ *cobra.Command, _ []string) error {
 	}
 
 	if len(rows) > 0 {
-		w := [8]int{len("NAMESPACE"), len("NAME"), len("READY"), len("ARCH"), len("NODEPOOL"), len("STATUS"), len("RESTARTS"), len("AGE")}
+		w := [9]int{len("NAMESPACE"), len("NAME"), len("KIND"), len("READY"), len("ARCH"), len("NODEPOOL"), len("STATUS"), len("RESTARTS"), len("AGE")}
 		for _, r := range rows {
 			w[0] = max(w[0], len(r.namespace))
 			w[1] = max(w[1], len(r.name))
-			w[2] = max(w[2], len(r.ready))
-			w[3] = max(w[3], len(r.arch))
-			w[4] = max(w[4], len(r.nodepool))
-			w[5] = max(w[5], len(r.status))
-			w[6] = max(w[6], len(r.restarts))
-			w[7] = max(w[7], len(r.age))
+			w[2] = max(w[2], len(r.kind))
+			w[3] = max(w[3], len(r.ready))
+			w[4] = max(w[4], len(r.arch))
+			w[5] = max(w[5], len(r.nodepool))
+			w[6] = max(w[6], len(r.status))
+			w[7] = max(w[7], len(r.restarts))
+			w[8] = max(w[8], len(r.age))
 		}
 
-		rowFmt := fmt.Sprintf("%%-%ds  %%-%ds  %%-%ds  %%s  %%s  %%s  %%-%ds  %%s\n", w[0], w[1], w[2], w[6])
+		rowFmt := fmt.Sprintf("%%-%ds  %%-%ds  %%-%ds  %%-%ds  %%s  %%s  %%s  %%-%ds  %%s\n", w[0], w[1], w[2], w[3], w[7])
 
-		fmt.Printf("%s  %s  %s  %s  %s  %s  %s  %s\n",
+		fmt.Printf("%s  %s  %s  %s  %s  %s  %s  %s  %s\n",
 			colorBlue(fmt.Sprintf("%-*s", w[0], "NAMESPACE")),
 			colorBlue(fmt.Sprintf("%-*s", w[1], "NAME")),
-			colorBlue(fmt.Sprintf("%-*s", w[2], "READY")),
-			colorBlue(fmt.Sprintf("%-*s", w[3], "ARCH")),
-			colorBlue(fmt.Sprintf("%-*s", w[4], "NODEPOOL")),
-			colorBlue(fmt.Sprintf("%-*s", w[5], "STATUS")),
-			colorBlue(fmt.Sprintf("%-*s", w[6], "RESTARTS")),
+			colorBlue(fmt.Sprintf("%-*s", w[2], "KIND")),
+			colorBlue(fmt.Sprintf("%-*s", w[3], "READY")),
+			colorBlue(fmt.Sprintf("%-*s", w[4], "ARCH")),
+			colorBlue(fmt.Sprintf("%-*s", w[5], "NODEPOOL")),
+			colorBlue(fmt.Sprintf("%-*s", w[6], "STATUS")),
+			colorBlue(fmt.Sprintf("%-*s", w[7], "RESTARTS")),
 			colorBlue("AGE"),
 		)
 		for _, r := range rows {
 			fmt.Printf(
-				rowFmt, r.namespace, r.name, r.ready,
-				archColor(r.arch, w[3]),
-				nodepoolColor(r.nodepool, w[4]),
-				statusColor(r.status, w[5]),
+				rowFmt, r.namespace, r.name, r.kind, r.ready,
+				archColor(r.arch, w[4]),
+				nodepoolColor(r.nodepool, w[5]),
+				statusColor(r.status, w[6]),
 				r.restarts, r.age,
 			)
 		}
@@ -222,6 +225,18 @@ func podStatus(pod corev1.Pod) string {
 		return string(pod.Status.Phase)
 	}
 	return "Unknown"
+}
+
+func podKind(pod corev1.Pod) string {
+	if len(pod.OwnerReferences) == 0 {
+		return "Pod"
+	}
+	switch pod.OwnerReferences[0].Kind {
+	case "ReplicaSet":
+		return "Deployment"
+	default:
+		return pod.OwnerReferences[0].Kind
+	}
 }
 
 func podRestarts(pod corev1.Pod) string {
