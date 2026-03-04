@@ -1,10 +1,15 @@
 package cmd
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"io"
+	"os"
+	"os/signal"
 	"path/filepath"
 	"sort"
+	"syscall"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -26,6 +31,7 @@ var healthyStatuses = map[string]bool{
 
 var namespace string
 var allPods bool
+var watchInterval float64
 
 var podsCmd = &cobra.Command{
 	Use:   "pods",
@@ -37,6 +43,7 @@ func init() {
 	rootCmd.AddCommand(podsCmd)
 	podsCmd.Flags().StringVarP(&namespace, "namespace", "n", "", "namespace to list pods from (default: all namespaces)")
 	podsCmd.Flags().BoolVarP(&allPods, "all", "a", false, "list all pods, not just unhealthy ones")
+	podsCmd.Flags().Float64VarP(&watchInterval, "watch", "w", 0, "refresh interval in seconds (0 = run once)")
 }
 
 func runPods(_ *cobra.Command, _ []string) error {
@@ -56,6 +63,33 @@ func runPods(_ *cobra.Command, _ []string) error {
 		return fmt.Errorf("failed to create kubernetes client: %w", err)
 	}
 
+	if watchInterval <= 0 {
+		return displayPods(clientSet, os.Stdout)
+	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	var lastOutput []byte
+	for {
+		var buf bytes.Buffer
+		if err := displayPods(clientSet, &buf); err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		} else {
+			lastOutput = buf.Bytes()
+		}
+		fmt.Print("\033[2J\033[H")
+		fmt.Printf("Every %.1fs: kt pods    %s\n\n", watchInterval, time.Now().Format("Mon Jan 2 15:04:05 2006"))
+		os.Stdout.Write(lastOutput)
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-time.After(time.Duration(float64(time.Second) * watchInterval)):
+		}
+	}
+}
+
+func displayPods(clientSet *kubernetes.Clientset, out io.Writer) error {
 	type podListResult struct {
 		list *corev1.PodList
 		err  error
@@ -137,7 +171,7 @@ func runPods(_ *cobra.Command, _ []string) error {
 
 		rowFmt := fmt.Sprintf("%%-%ds  %%-%ds  %%-%ds  %%-%ds  %%s  %%s  %%s  %%-%ds  %%s\n", w[0], w[1], w[2], w[3], w[7])
 
-		fmt.Printf("%s  %s  %s  %s  %s  %s  %s  %s  %s\n",
+		fmt.Fprintf(out, "%s  %s  %s  %s  %s  %s  %s  %s  %s\n",
 			colorBlue(fmt.Sprintf("%-*s", w[0], "NAMESPACE")),
 			colorBlue(fmt.Sprintf("%-*s", w[1], "NAME")),
 			colorBlue(fmt.Sprintf("%-*s", w[2], "KIND")),
@@ -149,7 +183,7 @@ func runPods(_ *cobra.Command, _ []string) error {
 			colorBlue("AGE"),
 		)
 		for _, r := range rows {
-			fmt.Printf(
+			fmt.Fprintf(out,
 				rowFmt, r.namespace, r.name, r.kind, r.ready,
 				archColor(r.arch, w[4]),
 				nodepoolColor(r.nodepool, w[5]),
@@ -157,7 +191,7 @@ func runPods(_ *cobra.Command, _ []string) error {
 				r.restarts, r.age,
 			)
 		}
-		fmt.Println()
+		fmt.Fprintln(out)
 	}
 
 	statuses := make([]string, 0, len(statusCounts))
@@ -166,9 +200,9 @@ func runPods(_ *cobra.Command, _ []string) error {
 	}
 	sort.Strings(statuses)
 
-	fmt.Println(colorBlue("Pods"))
+	fmt.Fprintln(out, colorBlue("Pods"))
 	for _, s := range statuses {
-		fmt.Printf("  %6d %s\n", statusCounts[s], colorGreen(s))
+		fmt.Fprintf(out, "  %6d %s\n", statusCounts[s], colorGreen(s))
 	}
 
 	return nil
