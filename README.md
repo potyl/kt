@@ -40,12 +40,6 @@ prod       worker-2   0/1    arm64  default-arm64  OOMKilled         1 (5m ago) 
 | `--all` | `-a` | Show all pods, not just unhealthy ones |
 | `--namespace` | `-n` | Limit to a specific namespace (default: all namespaces) |
 
-####Color coding
-
-- `ARCH`: `arm64` → green, `amd64` → cyan
-- `NODEPOOL`: the `arm64`/`amd64` portion of the name is colored green/cyan
-- `STATUS`: red for unhealthy statuses, plain for healthy ones
-
 ---
 
 ### `kt nodes`
@@ -62,12 +56,5 @@ NAME           NODECLASS   NODES  CPUS  MEMORY  PODS  READY  AGE
 default        default         5    20   75Gi   550  True   11d
 default-arm64  default         1     8   30Gi   110  True   31h
 ```
-
-#### Color coding
-
-- `ARCH`: `arm64` → green, `amd64` → cyan
-- `NODEPOOL` (nodes table): the `arm64`/`amd64` portion colored green/cyan
-- `NAME` (nodepools table): same coloring applied to nodepool names
-- `CPUS`, `MEMORY`, `PODS`: right-aligned
 
 The Nodepools section requires Karpenter (`karpenter.sh/v1`) and is silently skipped if not installed. Node counts, CPU, memory, and pod capacity in the summary are aggregated from the live node list.
