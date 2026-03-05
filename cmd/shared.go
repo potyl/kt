@@ -16,6 +16,14 @@ var (
 	colorCyan  = color.New(color.FgCyan, color.Bold).SprintFunc()
 )
 
+func autoscalerColor(autoscaler string, width int) string {
+	padded := fmt.Sprintf("%-*s", width, autoscaler)
+	if autoscaler == "managed" {
+		return colorRed(padded)
+	}
+	return padded
+}
+
 func archColor(arch string, width int) string {
 	padded := fmt.Sprintf("%-*s", width, arch)
 	switch arch {
