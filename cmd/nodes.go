@@ -9,6 +9,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"sort"
+	"strings"
 	"syscall"
 	"time"
 
@@ -92,7 +93,7 @@ func displayNodes(clientSet *kubernetes.Clientset, dynamicClient dynamic.Interfa
 	})
 
 	type nodeRow struct {
-		name, arch, nodepool, instance, cpus, memory, pods, age, osImage string
+		name, arch, autoscaler, nodepool, instance, cpus, memory, pods, age, osImage string
 	}
 
 	nodepoolCounts := map[string]int{}
@@ -110,51 +111,70 @@ func displayNodes(clientSet *kubernetes.Clientset, dynamicClient dynamic.Interfa
 		nodepoolMemBytes[np] += n.Status.Capacity.Memory().Value()
 		nodepoolPods[np] += n.Status.Capacity.Pods().Value()
 		memBytes := n.Status.Capacity.Memory().Value()
+
+		autoscaler := "-"
+		if n.Labels["karpenter.sh/nodepool"] != "" {
+			autoscaler = "karpenter"
+		} else if n.Labels["eks.amazonaws.com/nodegroup"] != "" {
+			autoscaler = "managed"
+		} else {
+			for k := range n.Annotations {
+				if strings.HasPrefix(k, "cluster-autoscaler.kubernetes.io/") {
+					autoscaler = "autoscaler"
+					break
+				}
+			}
+		}
+
 		rows = append(rows, nodeRow{
-			name:     n.Name,
-			arch:     n.Labels["kubernetes.io/arch"],
-			nodepool: np,
-			instance: n.Labels["node.kubernetes.io/instance-type"],
-			cpus:     fmt.Sprintf("%d", n.Status.Capacity.Cpu().Value()),
-			memory:   fmt.Sprintf("%dGi", memBytes>>30),
-			pods:     fmt.Sprintf("%d", n.Status.Capacity.Pods().Value()),
-			age:      humanDuration(time.Since(n.CreationTimestamp.Time)),
-			osImage:  n.Status.NodeInfo.OSImage,
+			name:       n.Name,
+			arch:       n.Labels["kubernetes.io/arch"],
+			autoscaler: autoscaler,
+			nodepool:   np,
+			instance:   n.Labels["node.kubernetes.io/instance-type"],
+			cpus:       fmt.Sprintf("%d", n.Status.Capacity.Cpu().Value()),
+			memory:     fmt.Sprintf("%dGi", memBytes>>30),
+			pods:       fmt.Sprintf("%d", n.Status.Capacity.Pods().Value()),
+			age:        humanDuration(time.Since(n.CreationTimestamp.Time)),
+			osImage:    n.Status.NodeInfo.OSImage,
 		})
 	}
 
 	if len(rows) > 0 {
-		w := [9]int{len("NODE"), len("ARCH"), len("NODEPOOL"), len("INSTANCE"), len("CPUS"), len("MEMORY"), len("PODS"), len("AGE"), len("OS IMAGE")}
+		w := [10]int{len("NODE"), len("ARCH"), len("AUTOSCALER"), len("NODEPOOL"), len("INSTANCE"), len("CPUS"), len("MEMORY"), len("PODS"), len("AGE"), len("OS IMAGE")}
 		for _, r := range rows {
 			w[0] = max(w[0], len(r.name))
 			w[1] = max(w[1], len(r.arch))
-			w[2] = max(w[2], len(r.nodepool))
-			w[3] = max(w[3], len(r.instance))
-			w[4] = max(w[4], len(r.cpus))
-			w[5] = max(w[5], len(r.memory))
-			w[6] = max(w[6], len(r.pods))
-			w[7] = max(w[7], len(r.age))
-			w[8] = max(w[8], len(r.osImage))
+			w[2] = max(w[2], len(r.autoscaler))
+			w[3] = max(w[3], len(r.nodepool))
+			w[4] = max(w[4], len(r.instance))
+			w[5] = max(w[5], len(r.cpus))
+			w[6] = max(w[6], len(r.memory))
+			w[7] = max(w[7], len(r.pods))
+			w[8] = max(w[8], len(r.age))
+			w[9] = max(w[9], len(r.osImage))
 		}
 
-		rowFmt := fmt.Sprintf("%%-%ds  %%s  %%s  %%-%ds  %%%ds  %%%ds  %%%ds  %%-%ds  %%s\n", w[0], w[3], w[4], w[5], w[6], w[7])
+		rowFmt := fmt.Sprintf("%%-%ds  %%s  %%-%ds  %%s  %%-%ds  %%%ds  %%%ds  %%%ds  %%-%ds  %%s\n", w[0], w[2], w[4], w[5], w[6], w[7], w[8])
 
-		fmt.Fprintf(out, "%s  %s  %s  %s  %s  %s  %s  %s  %s\n",
+		fmt.Fprintf(out, "%s  %s  %s  %s  %s  %s  %s  %s  %s  %s\n",
 			colorBlue(fmt.Sprintf("%-*s", w[0], "NODE")),
 			colorBlue(fmt.Sprintf("%-*s", w[1], "ARCH")),
-			colorBlue(fmt.Sprintf("%-*s", w[2], "NODEPOOL")),
-			colorBlue(fmt.Sprintf("%-*s", w[3], "INSTANCE")),
-			colorBlue(fmt.Sprintf("%*s", w[4], "CPUS")),
-			colorBlue(fmt.Sprintf("%*s", w[5], "MEMORY")),
-			colorBlue(fmt.Sprintf("%*s", w[6], "PODS")),
-			colorBlue(fmt.Sprintf("%-*s", w[7], "AGE")),
+			colorBlue(fmt.Sprintf("%-*s", w[2], "AUTOSCALER")),
+			colorBlue(fmt.Sprintf("%-*s", w[3], "NODEPOOL")),
+			colorBlue(fmt.Sprintf("%-*s", w[4], "INSTANCE")),
+			colorBlue(fmt.Sprintf("%*s", w[5], "CPUS")),
+			colorBlue(fmt.Sprintf("%*s", w[6], "MEMORY")),
+			colorBlue(fmt.Sprintf("%*s", w[7], "PODS")),
+			colorBlue(fmt.Sprintf("%-*s", w[8], "AGE")),
 			colorBlue("OS IMAGE"),
 		)
 		for _, r := range rows {
 			fmt.Fprintf(out, rowFmt,
 				r.name,
 				archColor(r.arch, w[1]),
-				nodepoolColor(r.nodepool, w[2]),
+				autoscalerColor(r.autoscaler, w[2]),
+				nodepoolColor(r.nodepool, w[3]),
 				r.instance, r.cpus, r.memory, r.pods, r.age, r.osImage,
 			)
 		}
