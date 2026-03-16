@@ -80,7 +80,12 @@ func runPods(_ *cobra.Command, _ []string) error {
 			lastOutput = buf.Bytes()
 		}
 		fmt.Print("\033[2J\033[H")
-		fmt.Printf("Every %.1fs: kt pods    %s\n\n", watchInterval, time.Now().Format("Mon Jan 2 15:04:05 2006"))
+		ctxName := resolveContextName()
+		nsLabel := "all namespaces"
+		if namespace != "" {
+			nsLabel = namespace
+		}
+		fmt.Printf("Every %.1fs: kt pods context: %s; namespace: %s    %s\n\n", watchInterval, colorGreen(ctxName), colorGreen(nsLabel), time.Now().Format("Mon Jan 2 15:04:05 2006"))
 		os.Stdout.Write(lastOutput)
 		select {
 		case <-ctx.Done():
