@@ -132,13 +132,15 @@ func displayPods(clientSet *kubernetes.Clientset, out io.Writer) error {
 
 	nodeArch := make(map[string]string, len(nodes.Items))
 	nodePool := make(map[string]string, len(nodes.Items))
+	nodeInstance := make(map[string]string, len(nodes.Items))
 	for _, node := range nodes.Items {
 		nodeArch[node.Name] = node.Labels["kubernetes.io/arch"]
 		nodePool[node.Name] = node.Labels["karpenter.sh/nodepool"]
+		nodeInstance[node.Name] = node.Labels["node.kubernetes.io/instance-type"]
 	}
 
 	type podRow struct {
-		namespace, name, kind, ready, status, restarts, age, arch, nodepool string
+		namespace, name, kind, ready, status, restarts, age, arch, nodepool, instance string
 	}
 
 	statusCounts := map[string]int{}
@@ -157,12 +159,13 @@ func displayPods(clientSet *kubernetes.Clientset, out io.Writer) error {
 				age:       humanDuration(time.Since(pod.CreationTimestamp.Time)),
 				arch:      nodeArch[pod.Spec.NodeName],
 				nodepool:  nodePool[pod.Spec.NodeName],
+				instance:  nodeInstance[pod.Spec.NodeName],
 			})
 		}
 	}
 
 	if len(rows) > 0 {
-		w := [9]int{len("NAMESPACE"), len("POD"), len("KIND"), len("READY"), len("ARCH"), len("NODEPOOL"), len("STATUS"), len("RESTARTS"), len("AGE")}
+		w := [10]int{len("NAMESPACE"), len("POD"), len("KIND"), len("READY"), len("ARCH"), len("NODEPOOL"), len("INSTANCE"), len("STATUS"), len("RESTARTS"), len("AGE")}
 		for _, r := range rows {
 			w[0] = max(w[0], len(r.namespace))
 			w[1] = max(w[1], len(r.name))
@@ -170,22 +173,24 @@ func displayPods(clientSet *kubernetes.Clientset, out io.Writer) error {
 			w[3] = max(w[3], len(r.ready))
 			w[4] = max(w[4], len(r.arch))
 			w[5] = max(w[5], len(r.nodepool))
-			w[6] = max(w[6], len(r.status))
-			w[7] = max(w[7], len(r.restarts))
-			w[8] = max(w[8], len(r.age))
+			w[6] = max(w[6], len(r.instance))
+			w[7] = max(w[7], len(r.status))
+			w[8] = max(w[8], len(r.restarts))
+			w[9] = max(w[9], len(r.age))
 		}
 
-		rowFmt := fmt.Sprintf("%%-%ds  %%-%ds  %%-%ds  %%-%ds  %%s  %%s  %%s  %%-%ds  %%s\n", w[0], w[1], w[2], w[3], w[7])
+		rowFmt := fmt.Sprintf("%%-%ds  %%-%ds  %%-%ds  %%-%ds  %%s  %%s  %%-%ds  %%s  %%-%ds  %%s\n", w[0], w[1], w[2], w[3], w[6], w[8])
 
-		fmt.Fprintf(out, "%s  %s  %s  %s  %s  %s  %s  %s  %s\n",
+		fmt.Fprintf(out, "%s  %s  %s  %s  %s  %s  %s  %s  %s  %s\n",
 			colorBlue(fmt.Sprintf("%-*s", w[0], "NAMESPACE")),
 			colorBlue(fmt.Sprintf("%-*s", w[1], "POD")),
 			colorBlue(fmt.Sprintf("%-*s", w[2], "KIND")),
 			colorBlue(fmt.Sprintf("%-*s", w[3], "READY")),
 			colorBlue(fmt.Sprintf("%-*s", w[4], "ARCH")),
 			colorBlue(fmt.Sprintf("%-*s", w[5], "NODEPOOL")),
-			colorBlue(fmt.Sprintf("%-*s", w[6], "STATUS")),
-			colorBlue(fmt.Sprintf("%-*s", w[7], "RESTARTS")),
+			colorBlue(fmt.Sprintf("%-*s", w[6], "INSTANCE")),
+			colorBlue(fmt.Sprintf("%-*s", w[7], "STATUS")),
+			colorBlue(fmt.Sprintf("%-*s", w[8], "RESTARTS")),
 			colorBlue("AGE"),
 		)
 		for _, r := range rows {
@@ -193,7 +198,8 @@ func displayPods(clientSet *kubernetes.Clientset, out io.Writer) error {
 				rowFmt, r.namespace, r.name, r.kind, r.ready,
 				archColor(r.arch, w[4]),
 				nodepoolColor(r.nodepool, w[5]),
-				statusColor(r.status, w[6]),
+				r.instance,
+				statusColor(r.status, w[7]),
 				r.restarts, r.age,
 			)
 		}
