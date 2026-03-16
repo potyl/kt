@@ -3,10 +3,12 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/fatih/color"
+	"k8s.io/client-go/tools/clientcmd"
 )
 
 var (
@@ -99,4 +101,18 @@ func homeDir() string {
 		panic("could not determine home directory")
 	}
 	return home
+}
+
+func resolveContextName() string {
+	kubeConfig := filepath.Join(homeDir(), ".kube", "config")
+	loadingRules := &clientcmd.ClientConfigLoadingRules{ExplicitPath: kubeConfig}
+	overrides := &clientcmd.ConfigOverrides{}
+	if kubeContext != "" {
+		overrides.CurrentContext = kubeContext
+	}
+	rawConfig, err := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(loadingRules, overrides).RawConfig()
+	if err != nil {
+		return "unknown"
+	}
+	return rawConfig.CurrentContext
 }

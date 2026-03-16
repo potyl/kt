@@ -72,7 +72,8 @@ func runNodes(_ *cobra.Command, _ []string) error {
 			lastOutput = buf.Bytes()
 		}
 		fmt.Print("\033[2J\033[H")
-		fmt.Printf("Every %.1fs: kt nodes    %s\n\n", nodesWatchInterval, time.Now().Format("Mon Jan 2 15:04:05 2006"))
+		ctxName := resolveContextName()
+		fmt.Printf("Every %.1fs: kt nodes context: %s    %s\n\n", nodesWatchInterval, colorGreen(ctxName), time.Now().Format("Mon Jan 2 15:04:05 2006"))
 		os.Stdout.Write(lastOutput)
 		select {
 		case <-ctx.Done():
