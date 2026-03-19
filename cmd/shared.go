@@ -104,13 +104,12 @@ func homeDir() string {
 }
 
 func resolveContextName() string {
+	if kubeContext != "" {
+		return kubeContext
+	}
 	kubeConfig := filepath.Join(homeDir(), ".kube", "config")
 	loadingRules := &clientcmd.ClientConfigLoadingRules{ExplicitPath: kubeConfig}
-	overrides := &clientcmd.ConfigOverrides{}
-	if kubeContext != "" {
-		overrides.CurrentContext = kubeContext
-	}
-	rawConfig, err := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(loadingRules, overrides).RawConfig()
+	rawConfig, err := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(loadingRules, &clientcmd.ConfigOverrides{}).RawConfig()
 	if err != nil {
 		return "unknown"
 	}
