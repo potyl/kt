@@ -20,7 +20,7 @@ var rootCmd = &cobra.Command{
 
 func init() {
 	rootCmd.PersistentFlags().StringVar(&kubeContext, "context", "", "kubectl context to use (default: current context)")
-	rootCmd.PersistentFlags().StringVar(&colorMode, "color", "always", "color output: always, auto, none")
+	rootCmd.PersistentFlags().StringVar(&colorMode, "color", "auto", "color output: always, auto, none")
 	cobra.OnInitialize(applyColorMode)
 }
 
