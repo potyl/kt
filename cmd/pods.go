@@ -78,6 +78,8 @@ func runPods(_ *cobra.Command, _ []string) error {
 	}
 	prefix := fmt.Sprintf("kt pods context: %s; namespace: %s", colorGreen(ctxName), colorGreen(nsLabel))
 
+	fmt.Print("\033[?1049h")
+
 	var lastOutput []byte
 	for {
 		var buf bytes.Buffer
@@ -86,10 +88,12 @@ func runPods(_ *cobra.Command, _ []string) error {
 		} else {
 			lastOutput = buf.Bytes()
 		}
-		fmt.Print("\033[2J\033[H")
+		fmt.Print("\033[H\033[2J")
 		os.Stdout.Write(lastOutput)
 		select {
 		case <-ctx.Done():
+			fmt.Print("\033[?1049l")
+			os.Stdout.Write(lastOutput)
 			return nil
 		case <-time.After(time.Duration(float64(time.Second) * watchInterval)):
 		}
