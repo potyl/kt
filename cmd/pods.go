@@ -65,37 +65,42 @@ func runPods(_ *cobra.Command, _ []string) error {
 	}
 
 	if watchInterval <= 0 {
-		return displayPods(clientSet, os.Stdout)
+		return displayPods(clientSet, os.Stdout, "")
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	ctxName := resolveContextName()
+	nsLabel := "all namespaces"
+	if namespace != "" {
+		nsLabel = namespace
+	}
+	prefix := fmt.Sprintf("kt pods context: %s; namespace: %s", colorGreen(ctxName), colorGreen(nsLabel))
+
+	fmt.Print("\033[?1049h")
+
 	var lastOutput []byte
 	for {
 		var buf bytes.Buffer
-		if err := displayPods(clientSet, &buf); err != nil {
+		if err := displayPods(clientSet, &buf, prefix); err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		} else {
 			lastOutput = buf.Bytes()
 		}
-		fmt.Print("\033[2J\033[H")
-		ctxName := resolveContextName()
-		nsLabel := "all namespaces"
-		if namespace != "" {
-			nsLabel = namespace
-		}
-		fmt.Printf("Every %.1fs: kt pods context: %s; namespace: %s    %s\n\n", watchInterval, colorGreen(ctxName), colorGreen(nsLabel), time.Now().Format("Mon Jan 2 15:04:05 2006"))
+		fmt.Print("\033[H\033[2J")
 		os.Stdout.Write(lastOutput)
 		select {
 		case <-ctx.Done():
+			fmt.Print("\033[?1049l")
+			os.Stdout.Write(lastOutput)
 			return nil
 		case <-time.After(time.Duration(float64(time.Second) * watchInterval)):
 		}
 	}
 }
 
-func displayPods(clientSet *kubernetes.Clientset, out io.Writer) error {
+func displayPods(clientSet *kubernetes.Clientset, out io.Writer, prefix string) error {
 	type podListResult struct {
 		list *corev1.PodList
 		err  error
@@ -164,7 +169,30 @@ func displayPods(clientSet *kubernetes.Clientset, out io.Writer) error {
 		}
 	}
 
+	// Summary
+	statuses := make([]string, 0, len(statusCounts))
+	for s := range statusCounts {
+		statuses = append(statuses, s)
+	}
+	sort.Strings(statuses)
+
+	parts := make([]string, 0, len(statuses))
+	for _, s := range statuses {
+		name := colorGreen(s)
+		if !healthyStatuses[s] {
+			name = colorRed(s)
+		}
+		parts = append(parts, fmt.Sprintf("%s: %d", name, statusCounts[s]))
+	}
+	summary := strings.Join(parts, ", ")
+	if prefix != "" {
+		fmt.Fprintf(out, "%s    %s\n", prefix, summary)
+	} else {
+		fmt.Fprintf(out, "%s\n", summary)
+	}
+
 	if len(rows) > 0 {
+		fmt.Fprintln(out)
 		w := [10]int{len("NAMESPACE"), len("POD"), len("KIND"), len("READY"), len("ARCH"), len("NODEPOOL"), len("INSTANCE"), len("STATUS"), len("RESTARTS"), len("AGE")}
 		for _, r := range rows {
 			w[0] = max(w[0], len(r.namespace))
@@ -203,25 +231,7 @@ func displayPods(clientSet *kubernetes.Clientset, out io.Writer) error {
 				r.restarts, r.age,
 			)
 		}
-		fmt.Fprintln(out)
 	}
-
-	// Summary
-	statuses := make([]string, 0, len(statusCounts))
-	for s := range statusCounts {
-		statuses = append(statuses, s)
-	}
-	sort.Strings(statuses)
-
-	parts := make([]string, 0, len(statuses))
-	for _, s := range statuses {
-		name := colorGreen(s)
-		if !healthyStatuses[s] {
-			name = colorRed(s)
-		}
-		parts = append(parts, fmt.Sprintf("%s: %d", name, statusCounts[s]))
-	}
-	fmt.Fprintf(out, "%s\n", strings.Join(parts, ", "))
 
 	return nil
 }
