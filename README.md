@@ -58,3 +58,33 @@ default-arm64  default         1     8   30Gi   110  True   31h
 ```
 
 The Nodepools section requires Karpenter (`karpenter.sh/v1`) and is silently skipped if not installed. Node counts, CPU, memory, and pod capacity in the summary are aggregated from the live node list.
+
+---
+
+### `kt images`
+
+Lists the unique container images used by one or more pods and the CPU architectures each image supports. Architecture is resolved by fetching the image manifest from the registry (using credentials from `~/.docker/config.json`). Multi-arch images show all supported platforms; single-arch images show the one platform from the image config.
+
+```text
+IMAGE                                       ARCHITECTURES
+gcr.io/my-project/api:v2.3.1                amd64, arm64
+gcr.io/my-project/sidecar:v1.0.0            amd64
+nginx:1.27                                  amd64, arm64, arm
+```
+
+#### Selecting pods
+
+| Syntax | Behaviour |
+| --- | --- |
+| `kt images <pod-name>` | Exact pod name match; falls back to prefix match |
+| `kt images svc/<service>` | Resolves the service's pod selector, then lists images for all matching pods |
+| `kt images -l key=value` | Label selector; repeat `-l` to AND multiple selectors together |
+| `kt images -a` | All pods in the namespace (or cluster-wide if no `-n` is given) |
+
+#### Options
+
+| Flag | Short | Description |
+| --- | --- | --- |
+| `--namespace` | `-n` | Limit to a specific namespace (default: all namespaces) |
+| `--label` | `-l` | Label selector; can be repeated (ANDed together) |
+| `--all` | `-a` | List images for all pods |
