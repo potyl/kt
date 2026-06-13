@@ -61,6 +61,45 @@ The Nodepools section requires Karpenter (`karpenter.sh/v1`) and is silently ski
 
 ---
 
+### `kt node <name>`
+
+Shows detailed information about a single node followed by all pods running on it and recent events.
+
+**Node info:**
+
+```text
+Name:                    ip-10-0-1-100.us-west-2.compute.internal
+Hostname:                ip-10-0-1-100.us-west-2.compute.internal
+InternalIP:              10.0.1.100
+Operating System:        linux
+Architecture:            arm64
+OS Image:                Bottlerocket OS 1.19.0
+Kernel Version:          5.15.167
+Container Runtime:       containerd://1.7.27
+Kubelet Version:         v1.32.1-eks-5d632d8
+Taints:                  dedicated=gpu:NoSchedule
+```
+
+**Pods** (same columns as `kt pods --all`, scoped to this node):
+
+```text
+NAMESPACE  POD              KIND        READY  ARCH   NODEPOOL       INSTANCE     STATUS   RESTARTS  AGE
+prod       api-xk9q         Deployment  1/1    arm64  default-arm64  m7g.2xlarge  Running  0         2d
+prod       worker-2         StatefulSet 1/1    arm64  default-arm64  m7g.2xlarge  Running  0         5h
+```
+
+**Events** (sorted oldest to newest, warnings in red):
+
+```text
+TYPE     REASON           FROM     LAST SEEN  MESSAGE
+Normal   NodeReady        kubelet  5d         Node ip-10-0-1-100... status is now: NodeReady
+Warning  NodeNotReady     kubelet  2m         Node ip-10-0-1-100... status is now: NodeNotReady
+```
+
+Use `--watch/-w <seconds>` to auto-refresh at the given interval.
+
+---
+
 ### `kt images`
 
 Lists the unique container images used by one or more pods and the CPU architectures each image supports. Architecture is resolved by fetching the image manifest from the registry (using credentials from `~/.docker/config.json`). Multi-arch images show all supported platforms; single-arch images show the one platform from the image config.
