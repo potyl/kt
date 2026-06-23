@@ -100,6 +100,20 @@ Use `--watch/-w <seconds>` to auto-refresh at the given interval.
 
 ---
 
+### `kt nodepools`
+
+Lists all Karpenter nodepools with their configuration and live resource totals aggregated from the current node list. Requires Karpenter (`karpenter.sh/v1`); exits silently if not installed.
+
+```text
+NODEPOOL       NODECLASS  ARCH   OS     CAPACITY-TYPE  INSTANCE-TYPE  NO-SCHEDULE    NODES  CPUS  MEMORY  PODS  READY  AGE
+default        default    amd64  linux  on-demand      m7i.xlarge         default       5    20    75Gi   550  True   11d
+default-arm64  default    arm64  linux  on-demand      c6g.8xlarge  default-arm64       1     8    30Gi   110  True   31h
+```
+
+Node counts, CPU, memory, and pod capacity are aggregated from the live node list. The `NO-SCHEDULE` column lists taint values for any `NoSchedule` taints defined on the nodepool.
+
+---
+
 ### `kt images`
 
 Lists the unique container images used by one or more pods and the CPU architectures each image supports. Architecture is resolved by fetching the image manifest from the registry (using credentials from `~/.docker/config.json`). Multi-arch images show all supported platforms; single-arch images show the one platform from the image config.

@@ -182,7 +182,12 @@ func displayNodes(clientSet *kubernetes.Clientset, dynamicClient dynamic.Interfa
 		fmt.Fprintln(out)
 	}
 
-	// Nodepools section via Karpenter API
+	return displayNodepools(dynamicClient, nodepoolCounts, nodepoolCPUs, nodepoolMemBytes, nodepoolPods, out)
+}
+
+// displayNodepools renders the Karpenter nodepool summary table, annotated with
+// per-pool node counts and resource totals derived from the live node list.
+func displayNodepools(dynamicClient dynamic.Interface, nodepoolCounts map[string]int, nodepoolCPUs, nodepoolMemBytes, nodepoolPods map[string]int64, out io.Writer) error {
 	nodepoolGVR := schema.GroupVersionResource{Group: "karpenter.sh", Version: "v1", Resource: "nodepools"}
 	npList, err := dynamicClient.Resource(nodepoolGVR).List(context.TODO(), metav1.ListOptions{})
 	if err != nil {
