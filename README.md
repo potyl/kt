@@ -105,12 +105,12 @@ Use `--watch/-w <seconds>` to auto-refresh at the given interval.
 Lists all Karpenter nodepools with their configuration and live resource totals aggregated from the current node list. Requires Karpenter (`karpenter.sh/v1`); exits silently if not installed.
 
 ```text
-NODEPOOL       NODECLASS  ARCH   OS     CAPACITY-TYPE  INSTANCE-TYPE  NO-SCHEDULE    NODES  CPUS  MEMORY  PODS  READY  AGE
-default        default    amd64  linux  on-demand      m7i.xlarge         default       5    20    75Gi   550  True   11d
-default-arm64  default    arm64  linux  on-demand      c6g.8xlarge  default-arm64       1     8    30Gi   110  True   31h
+NODEPOOL       NODECLASS  ARCH   OS     CAPACITY-TYPE  INSTANCE-TYPE  INSTANCE-CATEGORY  INSTANCE-GENERATION  INSTANCE-CPU  NO-SCHEDULE    NODES  CPUS  MEMORY  PODS  READY  AGE
+default        default    amd64  linux  on-demand      m7i.xlarge                                                               default       5    20    75Gi   550  True   11d
+default-arm64  default    arm64  linux  on-demand                     c,m,r              >5                   16,32,64  default-arm64       1     8    30Gi   110  True   31h
 ```
 
-Node counts, CPU, memory, and pod capacity are aggregated from the live node list. The `NO-SCHEDULE` column lists taint values for any `NoSchedule` taints defined on the nodepool.
+Node counts, CPU, memory, and pod capacity are aggregated from the live node list. The `INSTANCE-CATEGORY`, `INSTANCE-GENERATION`, and `INSTANCE-CPU` columns reflect the `karpenter.k8s.aws` requirement constraints defined on the nodepool (empty when not specified). The `NO-SCHEDULE` column lists taint values for any `NoSchedule` taints defined on the nodepool.
 
 ---
 

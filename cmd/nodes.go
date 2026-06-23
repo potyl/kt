@@ -196,19 +196,64 @@ func displayNodepools(dynamicClient dynamic.Interface, nodepoolCounts map[string
 	}
 
 	type npRow struct {
-		name, nodeclass, nodes, cpus, memory, pods, ready, age string
+		name, nodeclass, arch, os, capacityType, instanceType string
+		instanceCategory, instanceGeneration, instanceCPU     string
+		noSchedule                                            string
+		nodes, cpus, memory, pods, ready, age                 string
 	}
 
 	npRows := make([]npRow, 0, len(npList.Items))
 	for _, np := range npList.Items {
 		name := np.GetName()
 
-		nodeclass := ""
+		var nodeclass, arch, osVal, capacityType, instanceType string
+		var instanceCategory, instanceGeneration, instanceCPU string
+		var noScheduleTaints []string
+
 		if spec, ok := np.Object["spec"].(map[string]any); ok {
 			if tmpl, ok := spec["template"].(map[string]any); ok {
 				if s, ok := tmpl["spec"].(map[string]any); ok {
 					if ref, ok := s["nodeClassRef"].(map[string]any); ok {
 						nodeclass, _ = ref["name"].(string)
+					}
+					if reqs, ok := s["requirements"].([]any); ok {
+						for _, r := range reqs {
+							rm, ok := r.(map[string]any)
+							if !ok {
+								continue
+							}
+							key, _ := rm["key"].(string)
+							vals := joinRequirementValues(rm["values"])
+							switch key {
+							case "kubernetes.io/arch":
+								arch = vals
+							case "kubernetes.io/os":
+								osVal = vals
+							case "karpenter.sh/capacity-type":
+								capacityType = vals
+							case "node.kubernetes.io/instance-type":
+								instanceType = vals
+							case "karpenter.k8s.aws/instance-category":
+								instanceCategory = vals
+							case "karpenter.k8s.aws/instance-generation":
+								instanceGeneration = vals
+							case "karpenter.k8s.aws/instance-cpu":
+								instanceCPU = vals
+							}
+						}
+					}
+					if taints, ok := s["taints"].([]any); ok {
+						for _, t := range taints {
+							tm, ok := t.(map[string]any)
+							if !ok {
+								continue
+							}
+							if tm["effect"] == "NoSchedule" {
+								if v, ok := tm["value"].(string); ok && v != "" {
+									noScheduleTaints = append(noScheduleTaints, v)
+								}
+							}
+						}
 					}
 				}
 			}
@@ -232,14 +277,22 @@ func displayNodepools(dynamicClient dynamic.Interface, nodepoolCounts map[string
 		}
 
 		npRows = append(npRows, npRow{
-			name:      name,
-			nodeclass: nodeclass,
-			nodes:     fmt.Sprintf("%d", nodepoolCounts[name]),
-			cpus:      fmt.Sprintf("%d", nodepoolCPUs[name]),
-			memory:    fmt.Sprintf("%dGi", nodepoolMemBytes[name]>>30),
-			pods:      fmt.Sprintf("%d", nodepoolPods[name]),
-			ready:     ready,
-			age:       humanDuration(time.Since(np.GetCreationTimestamp().Time)),
+			name:              name,
+			nodeclass:         nodeclass,
+			arch:              arch,
+			os:                osVal,
+			capacityType:      capacityType,
+			instanceType:      instanceType,
+			instanceCategory:  instanceCategory,
+			instanceGeneration: instanceGeneration,
+			instanceCPU:       instanceCPU,
+			noSchedule:        strings.Join(noScheduleTaints, ","),
+			nodes:        fmt.Sprintf("%d", nodepoolCounts[name]),
+			cpus:         fmt.Sprintf("%d", nodepoolCPUs[name]),
+			memory:       fmt.Sprintf("%dGi", nodepoolMemBytes[name]>>30),
+			pods:         fmt.Sprintf("%d", nodepoolPods[name]),
+			ready:        ready,
+			age:          humanDuration(time.Since(np.GetCreationTimestamp().Time)),
 		})
 	}
 
@@ -248,37 +301,79 @@ func displayNodepools(dynamicClient dynamic.Interface, nodepoolCounts map[string
 	})
 
 	if len(npRows) > 0 {
-		wn := [8]int{len("NODEPOOL"), len("NODECLASS"), len("NODES"), len("CPUS"), len("MEMORY"), len("PODS"), len("READY"), len("AGE")}
+		wn := [16]int{
+			len("NODEPOOL"), len("NODECLASS"), len("NODES"), len("ARCH"), len("OS"),
+			len("CAPACITY-TYPE"), len("INSTANCE-TYPE"),
+			len("INSTANCE-CATEGORY"), len("INSTANCE-GENERATION"), len("INSTANCE-CPU"),
+			len("NO-SCHEDULE"),
+			len("CPUS"), len("MEMORY"), len("PODS"), len("READY"), len("AGE"),
+		}
 		for _, r := range npRows {
 			wn[0] = max(wn[0], len(r.name))
 			wn[1] = max(wn[1], len(r.nodeclass))
 			wn[2] = max(wn[2], len(r.nodes))
-			wn[3] = max(wn[3], len(r.cpus))
-			wn[4] = max(wn[4], len(r.memory))
-			wn[5] = max(wn[5], len(r.pods))
-			wn[6] = max(wn[6], len(r.ready))
-			wn[7] = max(wn[7], len(r.age))
+			wn[3] = max(wn[3], len(r.arch))
+			wn[4] = max(wn[4], len(r.os))
+			wn[5] = max(wn[5], len(r.capacityType))
+			wn[6] = max(wn[6], len(r.instanceType))
+			wn[7] = max(wn[7], len(r.instanceCategory))
+			wn[8] = max(wn[8], len(r.instanceGeneration))
+			wn[9] = max(wn[9], len(r.instanceCPU))
+			wn[10] = max(wn[10], len(r.noSchedule))
+			wn[11] = max(wn[11], len(r.cpus))
+			wn[12] = max(wn[12], len(r.memory))
+			wn[13] = max(wn[13], len(r.pods))
+			wn[14] = max(wn[14], len(r.ready))
+			wn[15] = max(wn[15], len(r.age))
 		}
 
-		rowFmt := fmt.Sprintf("%%s  %%-%ds  %%%ds  %%%ds  %%%ds  %%%ds  %%-%ds  %%s\n", wn[1], wn[2], wn[3], wn[4], wn[5], wn[6])
+		rowFmt := fmt.Sprintf(
+			"%%s  %%-%ds  %%%ds  %%s  %%-%ds  %%-%ds  %%-%ds  %%-%ds  %%-%ds  %%-%ds  %%s  %%%ds  %%%ds  %%%ds  %%-%ds  %%s\n",
+			wn[1], wn[2], wn[4], wn[5], wn[6], wn[7], wn[8], wn[9], wn[11], wn[12], wn[13], wn[14],
+		)
 
-		fmt.Fprintf(out, "%s  %s  %s  %s  %s  %s  %s  %s\n",
+		fmt.Fprintf(out, "%s  %s  %s  %s  %s  %s  %s  %s  %s  %s  %s  %s  %s  %s  %s  %s\n",
 			colorBlue(fmt.Sprintf("%-*s", wn[0], "NODEPOOL")),
 			colorBlue(fmt.Sprintf("%-*s", wn[1], "NODECLASS")),
 			colorBlue(fmt.Sprintf("%*s", wn[2], "NODES")),
-			colorBlue(fmt.Sprintf("%*s", wn[3], "CPUS")),
-			colorBlue(fmt.Sprintf("%*s", wn[4], "MEMORY")),
-			colorBlue(fmt.Sprintf("%*s", wn[5], "PODS")),
-			colorBlue(fmt.Sprintf("%-*s", wn[6], "READY")),
+			colorBlue(fmt.Sprintf("%-*s", wn[3], "ARCH")),
+			colorBlue(fmt.Sprintf("%-*s", wn[4], "OS")),
+			colorBlue(fmt.Sprintf("%-*s", wn[5], "CAPACITY-TYPE")),
+			colorBlue(fmt.Sprintf("%-*s", wn[6], "INSTANCE-TYPE")),
+			colorBlue(fmt.Sprintf("%-*s", wn[7], "INSTANCE-CATEGORY")),
+			colorBlue(fmt.Sprintf("%-*s", wn[8], "INSTANCE-GENERATION")),
+			colorBlue(fmt.Sprintf("%-*s", wn[9], "INSTANCE-CPU")),
+			colorBlue(fmt.Sprintf("%-*s", wn[10], "NO-SCHEDULE")),
+			colorBlue(fmt.Sprintf("%*s", wn[11], "CPUS")),
+			colorBlue(fmt.Sprintf("%*s", wn[12], "MEMORY")),
+			colorBlue(fmt.Sprintf("%*s", wn[13], "PODS")),
+			colorBlue(fmt.Sprintf("%-*s", wn[14], "READY")),
 			colorBlue("AGE"),
 		)
 		for _, r := range npRows {
 			fmt.Fprintf(out, rowFmt,
 				nodepoolColor(r.name, wn[0]),
-				r.nodeclass, r.nodes, r.cpus, r.memory, r.pods, r.ready, r.age,
+				r.nodeclass, r.nodes, archColor(r.arch, wn[3]), r.os, r.capacityType, r.instanceType,
+				r.instanceCategory, r.instanceGeneration, r.instanceCPU,
+				nodepoolColor(r.noSchedule, wn[10]),
+				r.cpus, r.memory, r.pods, r.ready, r.age,
 			)
 		}
 	}
 
 	return nil
+}
+
+func joinRequirementValues(v any) string {
+	vals, ok := v.([]any)
+	if !ok {
+		return ""
+	}
+	parts := make([]string, 0, len(vals))
+	for _, val := range vals {
+		if s, ok := val.(string); ok {
+			parts = append(parts, s)
+		}
+	}
+	return strings.Join(parts, ",")
 }
