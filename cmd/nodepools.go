@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/dlclark/regexp2"
 	"github.com/spf13/cobra"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/dynamic"
@@ -18,6 +19,7 @@ import (
 )
 
 var nodepoolsWatchInterval float64
+var nodepoolsGrepPattern string
 
 var nodepoolsCmd = &cobra.Command{
 	Use:   "nodepools",
@@ -28,9 +30,19 @@ var nodepoolsCmd = &cobra.Command{
 func init() {
 	rootCmd.AddCommand(nodepoolsCmd)
 	nodepoolsCmd.Flags().Float64VarP(&nodepoolsWatchInterval, "watch", "w", 0, "refresh interval in seconds (0 = run once)")
+	nodepoolsCmd.Flags().StringVarP(&nodepoolsGrepPattern, "grep", "g", "", "filter rows by Perl-compatible regexp (matched against the full rendered row)")
 }
 
 func runNodepools(_ *cobra.Command, _ []string) error {
+	var grep *regexp2.Regexp
+	if nodepoolsGrepPattern != "" {
+		var err error
+		grep, err = regexp2.Compile(nodepoolsGrepPattern, regexp2.None)
+		if err != nil {
+			return fmt.Errorf("invalid --grep pattern: %w", err)
+		}
+	}
+
 	kubeConfig := filepath.Join(homeDir(), ".kube", "config")
 	loadingRules := &clientcmd.ClientConfigLoadingRules{ExplicitPath: kubeConfig}
 	overrides := &clientcmd.ConfigOverrides{}
@@ -73,7 +85,7 @@ func runNodepools(_ *cobra.Command, _ []string) error {
 			nodepoolPods[np] += n.Status.Capacity.Pods().Value()
 		}
 
-		return displayNodepools(dynamicClient, nodepoolCounts, nodepoolCPUs, nodepoolMemBytes, nodepoolPods, os.Stdout)
+		return displayNodepools(dynamicClient, nodepoolCounts, nodepoolCPUs, nodepoolMemBytes, nodepoolPods, os.Stdout, grep)
 	}
 
 	if nodepoolsWatchInterval <= 0 {
@@ -104,7 +116,7 @@ func runNodepools(_ *cobra.Command, _ []string) error {
 				nodepoolMemBytes[np] += n.Status.Capacity.Memory().Value()
 				nodepoolPods[np] += n.Status.Capacity.Pods().Value()
 			}
-			if err := displayNodepools(dynamicClient, nodepoolCounts, nodepoolCPUs, nodepoolMemBytes, nodepoolPods, &buf); err != nil {
+			if err := displayNodepools(dynamicClient, nodepoolCounts, nodepoolCPUs, nodepoolMemBytes, nodepoolPods, &buf, grep); err != nil {
 				fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			} else {
 				lastOutput = buf.Bytes()
