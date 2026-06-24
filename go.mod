@@ -3,6 +3,7 @@ module kt
 go 1.25.0
 
 require (
+	github.com/dlclark/regexp2 v1.12.0
 	github.com/fatih/color v1.18.0
 	github.com/google/go-containerregistry v0.21.6
 	github.com/spf13/cobra v1.10.2

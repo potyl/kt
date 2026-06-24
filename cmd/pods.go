@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/dlclark/regexp2"
 	"github.com/spf13/cobra"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -33,6 +34,7 @@ var healthyStatuses = map[string]bool{
 var namespace string
 var allPods bool
 var watchInterval float64
+var grepPattern string
 
 var podsCmd = &cobra.Command{
 	Use:   "pods",
@@ -45,9 +47,19 @@ func init() {
 	podsCmd.Flags().StringVarP(&namespace, "namespace", "n", "", "namespace to list pods from (default: all namespaces)")
 	podsCmd.Flags().BoolVarP(&allPods, "all", "a", false, "list all pods, not just unhealthy ones")
 	podsCmd.Flags().Float64VarP(&watchInterval, "watch", "w", 0, "refresh interval in seconds (0 = run once)")
+	podsCmd.Flags().StringVarP(&grepPattern, "grep", "g", "", "filter rows by Perl-compatible regexp (matched against the full rendered row)")
 }
 
 func runPods(_ *cobra.Command, _ []string) error {
+	var grep *regexp2.Regexp
+	if grepPattern != "" {
+		var err error
+		grep, err = regexp2.Compile(grepPattern, regexp2.None)
+		if err != nil {
+			return fmt.Errorf("invalid --grep pattern: %w", err)
+		}
+	}
+
 	kubeConfig := filepath.Join(homeDir(), ".kube", "config")
 	loadingRules := &clientcmd.ClientConfigLoadingRules{ExplicitPath: kubeConfig}
 	overrides := &clientcmd.ConfigOverrides{}
@@ -65,7 +77,7 @@ func runPods(_ *cobra.Command, _ []string) error {
 	}
 
 	if watchInterval <= 0 {
-		return displayPods(clientSet, os.Stdout, "")
+		return displayPods(clientSet, os.Stdout, "", grep)
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -81,7 +93,7 @@ func runPods(_ *cobra.Command, _ []string) error {
 	var lastOutput []byte
 	for {
 		var buf bytes.Buffer
-		if err := displayPods(clientSet, &buf, prefix); err != nil {
+		if err := displayPods(clientSet, &buf, prefix, grep); err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		} else {
 			lastOutput = buf.Bytes()
@@ -96,7 +108,7 @@ func runPods(_ *cobra.Command, _ []string) error {
 	}
 }
 
-func displayPods(clientSet *kubernetes.Clientset, out io.Writer, prefix string) error {
+func displayPods(clientSet *kubernetes.Clientset, out io.Writer, prefix string, grep *regexp2.Regexp) error {
 	type podListResult struct {
 		list *corev1.PodList
 		err  error
@@ -185,6 +197,17 @@ func displayPods(clientSet *kubernetes.Clientset, out io.Writer, prefix string) 
 		fmt.Fprintf(out, "%s    %s\n", prefix, summary)
 	} else {
 		fmt.Fprintf(out, "%s\n", summary)
+	}
+
+	if grep != nil {
+		filtered := rows[:0]
+		for _, r := range rows {
+			plain := strings.Join([]string{r.namespace, r.name, r.kind, r.ready, r.status, r.restarts, r.age, r.arch, r.nodepool, r.instance}, " ")
+			if ok, _ := grep.MatchString(plain); ok {
+				filtered = append(filtered, r)
+			}
+		}
+		rows = filtered
 	}
 
 	if len(rows) > 0 {
