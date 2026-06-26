@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/dlclark/regexp2"
 	"github.com/spf13/cobra"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -22,6 +23,7 @@ import (
 )
 
 var nodesWatchInterval float64
+var nodesGrepPattern string
 
 var nodesCmd = &cobra.Command{
 	Use:   "nodes",
@@ -32,9 +34,19 @@ var nodesCmd = &cobra.Command{
 func init() {
 	rootCmd.AddCommand(nodesCmd)
 	nodesCmd.Flags().Float64VarP(&nodesWatchInterval, "watch", "w", 0, "refresh interval in seconds (0 = run once)")
+	nodesCmd.Flags().StringVarP(&nodesGrepPattern, "grep", "g", "", "filter rows by Perl-compatible regexp (matched against the full rendered row)")
 }
 
 func runNodes(_ *cobra.Command, _ []string) error {
+	var grep *regexp2.Regexp
+	if nodesGrepPattern != "" {
+		var err error
+		grep, err = regexp2.Compile(nodesGrepPattern, regexp2.None)
+		if err != nil {
+			return fmt.Errorf("invalid --grep pattern: %w", err)
+		}
+	}
+
 	kubeConfig := filepath.Join(homeDir(), ".kube", "config")
 	loadingRules := &clientcmd.ClientConfigLoadingRules{ExplicitPath: kubeConfig}
 	overrides := &clientcmd.ConfigOverrides{}
@@ -57,7 +69,7 @@ func runNodes(_ *cobra.Command, _ []string) error {
 	}
 
 	if nodesWatchInterval <= 0 {
-		return displayNodes(clientSet, dynamicClient, os.Stdout)
+		return displayNodes(clientSet, dynamicClient, os.Stdout, grep)
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -66,7 +78,7 @@ func runNodes(_ *cobra.Command, _ []string) error {
 	var lastOutput []byte
 	for {
 		var buf bytes.Buffer
-		if err := displayNodes(clientSet, dynamicClient, &buf); err != nil {
+		if err := displayNodes(clientSet, dynamicClient, &buf, grep); err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		} else {
 			lastOutput = buf.Bytes()
@@ -83,7 +95,7 @@ func runNodes(_ *cobra.Command, _ []string) error {
 	}
 }
 
-func displayNodes(clientSet *kubernetes.Clientset, dynamicClient dynamic.Interface, out io.Writer) error {
+func displayNodes(clientSet *kubernetes.Clientset, dynamicClient dynamic.Interface, out io.Writer, grep *regexp2.Regexp) error {
 	nodes, err := clientSet.CoreV1().Nodes().List(context.TODO(), metav1.ListOptions{})
 	if err != nil {
 		return fmt.Errorf("failed to list nodes: %w", err)
@@ -141,6 +153,17 @@ func displayNodes(clientSet *kubernetes.Clientset, dynamicClient dynamic.Interfa
 		})
 	}
 
+	if grep != nil {
+		filtered := rows[:0]
+		for _, r := range rows {
+			plain := strings.Join([]string{r.name, r.arch, r.autoscaler, r.nodepool, r.instance, r.cpus, r.memory, r.pods, r.age, r.osImage}, " ")
+			if ok, _ := grep.MatchString(plain); ok {
+				filtered = append(filtered, r)
+			}
+		}
+		rows = filtered
+	}
+
 	if len(rows) > 0 {
 		w := [10]int{len("NODE"), len("ARCH"), len("AUTOSCALER"), len("NODEPOOL"), len("INSTANCE"), len("CPUS"), len("MEMORY"), len("PODS"), len("AGE"), len("OS IMAGE")}
 		for _, r := range rows {
@@ -182,12 +205,12 @@ func displayNodes(clientSet *kubernetes.Clientset, dynamicClient dynamic.Interfa
 		fmt.Fprintln(out)
 	}
 
-	return displayNodepools(dynamicClient, nodepoolCounts, nodepoolCPUs, nodepoolMemBytes, nodepoolPods, out)
+	return displayNodepools(dynamicClient, nodepoolCounts, nodepoolCPUs, nodepoolMemBytes, nodepoolPods, out, grep)
 }
 
 // displayNodepools renders the Karpenter nodepool summary table, annotated with
 // per-pool node counts and resource totals derived from the live node list.
-func displayNodepools(dynamicClient dynamic.Interface, nodepoolCounts map[string]int, nodepoolCPUs, nodepoolMemBytes, nodepoolPods map[string]int64, out io.Writer) error {
+func displayNodepools(dynamicClient dynamic.Interface, nodepoolCounts map[string]int, nodepoolCPUs, nodepoolMemBytes, nodepoolPods map[string]int64, out io.Writer, grep *regexp2.Regexp) error {
 	nodepoolGVR := schema.GroupVersionResource{Group: "karpenter.sh", Version: "v1", Resource: "nodepools"}
 	npList, err := dynamicClient.Resource(nodepoolGVR).List(context.TODO(), metav1.ListOptions{})
 	if err != nil {
@@ -277,28 +300,39 @@ func displayNodepools(dynamicClient dynamic.Interface, nodepoolCounts map[string
 		}
 
 		npRows = append(npRows, npRow{
-			name:              name,
-			nodeclass:         nodeclass,
-			arch:              arch,
-			os:                osVal,
-			capacityType:      capacityType,
-			instanceType:      instanceType,
-			instanceCategory:  instanceCategory,
+			name:               name,
+			nodeclass:          nodeclass,
+			arch:               arch,
+			os:                 osVal,
+			capacityType:       capacityType,
+			instanceType:       instanceType,
+			instanceCategory:   instanceCategory,
 			instanceGeneration: instanceGeneration,
-			instanceCPU:       instanceCPU,
-			noSchedule:        strings.Join(noScheduleTaints, ","),
-			nodes:        fmt.Sprintf("%d", nodepoolCounts[name]),
-			cpus:         fmt.Sprintf("%d", nodepoolCPUs[name]),
-			memory:       fmt.Sprintf("%dGi", nodepoolMemBytes[name]>>30),
-			pods:         fmt.Sprintf("%d", nodepoolPods[name]),
-			ready:        ready,
-			age:          humanDuration(time.Since(np.GetCreationTimestamp().Time)),
+			instanceCPU:        instanceCPU,
+			noSchedule:         strings.Join(noScheduleTaints, ","),
+			nodes:              fmt.Sprintf("%d", nodepoolCounts[name]),
+			cpus:               fmt.Sprintf("%d", nodepoolCPUs[name]),
+			memory:             fmt.Sprintf("%dGi", nodepoolMemBytes[name]>>30),
+			pods:               fmt.Sprintf("%d", nodepoolPods[name]),
+			ready:              ready,
+			age:                humanDuration(time.Since(np.GetCreationTimestamp().Time)),
 		})
 	}
 
 	sort.Slice(npRows, func(i, j int) bool {
 		return npRows[i].name < npRows[j].name
 	})
+
+	if grep != nil {
+		filtered := npRows[:0]
+		for _, r := range npRows {
+			plain := strings.Join([]string{r.name, r.nodeclass, r.arch, r.os, r.capacityType, r.instanceType, r.instanceCategory, r.instanceGeneration, r.instanceCPU, r.noSchedule, r.nodes, r.cpus, r.memory, r.pods, r.ready, r.age}, " ")
+			if ok, _ := grep.MatchString(plain); ok {
+				filtered = append(filtered, r)
+			}
+		}
+		npRows = filtered
+	}
 
 	if len(npRows) > 0 {
 		wn := [16]int{
