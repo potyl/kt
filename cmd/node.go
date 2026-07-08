@@ -23,6 +23,7 @@ import (
 var nodeWatchInterval float64
 var nodeNamespaceFilters []string
 var nodeKindFilters []string
+var nodePodsOnly bool
 
 var nodeCmd = &cobra.Command{
 	Use:   "node <name>",
@@ -36,6 +37,7 @@ func init() {
 	nodeCmd.Flags().Float64VarP(&nodeWatchInterval, "watch", "w", 0, "refresh interval in seconds (0 = run once)")
 	nodeCmd.Flags().StringArrayVarP(&nodeNamespaceFilters, "namespace", "n", nil, "filter pod rows by namespace (repeatable)")
 	nodeCmd.Flags().StringArrayVarP(&nodeKindFilters, "kind", "k", nil, "filter pod rows by kind (repeatable)")
+	nodeCmd.Flags().BoolVarP(&nodePodsOnly, "pods", "p", false, "only display the pods table, hiding node info and events")
 }
 
 func runNode(_ *cobra.Command, args []string) error {
@@ -58,7 +60,7 @@ func runNode(_ *cobra.Command, args []string) error {
 	}
 
 	if nodeWatchInterval <= 0 {
-		return displayNode(clientSet, nodeName, os.Stdout, nodeNamespaceFilters, nodeKindFilters)
+		return displayNode(clientSet, nodeName, os.Stdout, nodeNamespaceFilters, nodeKindFilters, nodePodsOnly)
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -67,7 +69,7 @@ func runNode(_ *cobra.Command, args []string) error {
 	var lastOutput []byte
 	for {
 		var buf bytes.Buffer
-		if err := displayNode(clientSet, nodeName, &buf, nodeNamespaceFilters, nodeKindFilters); err != nil {
+		if err := displayNode(clientSet, nodeName, &buf, nodeNamespaceFilters, nodeKindFilters, nodePodsOnly); err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		} else {
 			lastOutput = buf.Bytes()
@@ -84,7 +86,7 @@ func runNode(_ *cobra.Command, args []string) error {
 	}
 }
 
-func displayNode(clientSet *kubernetes.Clientset, nodeName string, out io.Writer, namespaceFilters, kindFilters []string) error {
+func displayNode(clientSet *kubernetes.Clientset, nodeName string, out io.Writer, namespaceFilters, kindFilters []string, podsOnly bool) error {
 	node, err := clientSet.CoreV1().Nodes().Get(context.TODO(), nodeName, metav1.GetOptions{})
 	if err != nil {
 		return fmt.Errorf("failed to get node %q: %w", nodeName, err)
@@ -97,55 +99,60 @@ func displayNode(clientSet *kubernetes.Clientset, nodeName string, out io.Writer
 		return fmt.Errorf("failed to list pods on node %q: %w", nodeName, err)
 	}
 
-	events, err := clientSet.CoreV1().Events(metav1.NamespaceAll).List(context.TODO(), metav1.ListOptions{
-		FieldSelector: "involvedObject.name=" + nodeName + ",involvedObject.kind=Node",
-	})
-	if err != nil {
-		return fmt.Errorf("failed to list events for node %q: %w", nodeName, err)
-	}
-
-	internalIP := ""
-	hostname := ""
-	for _, addr := range node.Status.Addresses {
-		switch addr.Type {
-		case corev1.NodeInternalIP:
-			internalIP = addr.Address
-		case corev1.NodeHostName:
-			hostname = addr.Address
+	var events *corev1.EventList
+	if !podsOnly {
+		events, err = clientSet.CoreV1().Events(metav1.NamespaceAll).List(context.TODO(), metav1.ListOptions{
+			FieldSelector: "involvedObject.name=" + nodeName + ",involvedObject.kind=Node",
+		})
+		if err != nil {
+			return fmt.Errorf("failed to list events for node %q: %w", nodeName, err)
 		}
 	}
 
-	label := func(s string) string {
-		return colorBlue(fmt.Sprintf("%-24s", s))
-	}
-	fmt.Fprintf(out, "%s %s\n", label("Name:"), node.Name)
-	fmt.Fprintf(out, "%s %s\n", label("Hostname:"), hostname)
-	fmt.Fprintf(out, "%s %s\n", label("InternalIP:"), internalIP)
-	fmt.Fprintf(out, "%s %s\n", label("Operating System:"), node.Status.NodeInfo.OperatingSystem)
-	fmt.Fprintf(out, "%s %s\n", label("Architecture:"), node.Labels["kubernetes.io/arch"])
-	fmt.Fprintf(out, "%s %s\n", label("OS Image:"), node.Status.NodeInfo.OSImage)
-	fmt.Fprintf(out, "%s %s\n", label("Kernel Version:"), node.Status.NodeInfo.KernelVersion)
-	fmt.Fprintf(out, "%s %s\n", label("Container Runtime:"), node.Status.NodeInfo.ContainerRuntimeVersion)
-	fmt.Fprintf(out, "%s %s\n", label("Kubelet Version:"), node.Status.NodeInfo.KubeletVersion)
-
-	if len(node.Spec.Taints) == 0 {
-		fmt.Fprintf(out, "%s %s\n", label("Taints:"), "<none>")
-	} else {
-		for i, t := range node.Spec.Taints {
-			var taintStr string
-			if t.Value != "" {
-				taintStr = fmt.Sprintf("%s=%s:%s", t.Key, t.Value, t.Effect)
-			} else {
-				taintStr = fmt.Sprintf("%s:%s", t.Key, t.Effect)
-			}
-			if i == 0 {
-				fmt.Fprintf(out, "%s %s\n", label("Taints:"), taintStr)
-			} else {
-				fmt.Fprintf(out, "%s %s\n", label(""), taintStr)
+	if !podsOnly {
+		internalIP := ""
+		hostname := ""
+		for _, addr := range node.Status.Addresses {
+			switch addr.Type {
+			case corev1.NodeInternalIP:
+				internalIP = addr.Address
+			case corev1.NodeHostName:
+				hostname = addr.Address
 			}
 		}
+
+		label := func(s string) string {
+			return colorBlue(fmt.Sprintf("%-24s", s))
+		}
+		fmt.Fprintf(out, "%s %s\n", label("Name:"), node.Name)
+		fmt.Fprintf(out, "%s %s\n", label("Hostname:"), hostname)
+		fmt.Fprintf(out, "%s %s\n", label("InternalIP:"), internalIP)
+		fmt.Fprintf(out, "%s %s\n", label("Operating System:"), node.Status.NodeInfo.OperatingSystem)
+		fmt.Fprintf(out, "%s %s\n", label("Architecture:"), node.Labels["kubernetes.io/arch"])
+		fmt.Fprintf(out, "%s %s\n", label("OS Image:"), node.Status.NodeInfo.OSImage)
+		fmt.Fprintf(out, "%s %s\n", label("Kernel Version:"), node.Status.NodeInfo.KernelVersion)
+		fmt.Fprintf(out, "%s %s\n", label("Container Runtime:"), node.Status.NodeInfo.ContainerRuntimeVersion)
+		fmt.Fprintf(out, "%s %s\n", label("Kubelet Version:"), node.Status.NodeInfo.KubeletVersion)
+
+		if len(node.Spec.Taints) == 0 {
+			fmt.Fprintf(out, "%s %s\n", label("Taints:"), "<none>")
+		} else {
+			for i, t := range node.Spec.Taints {
+				var taintStr string
+				if t.Value != "" {
+					taintStr = fmt.Sprintf("%s=%s:%s", t.Key, t.Value, t.Effect)
+				} else {
+					taintStr = fmt.Sprintf("%s:%s", t.Key, t.Effect)
+				}
+				if i == 0 {
+					fmt.Fprintf(out, "%s %s\n", label("Taints:"), taintStr)
+				} else {
+					fmt.Fprintf(out, "%s %s\n", label(""), taintStr)
+				}
+			}
+		}
+		fmt.Fprintln(out)
 	}
-	fmt.Fprintln(out)
 
 	sort.Slice(pods.Items, func(i, j int) bool {
 		if pods.Items[i].Namespace != pods.Items[j].Namespace {
@@ -236,6 +243,10 @@ func displayNode(clientSet *kubernetes.Clientset, nodeName string, out io.Writer
 			statusColor(r.status, w[7]),
 			r.restarts, r.age,
 		)
+	}
+
+	if podsOnly {
+		return nil
 	}
 
 	// Events section
