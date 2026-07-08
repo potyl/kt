@@ -85,7 +85,7 @@ func runNodepools(_ *cobra.Command, _ []string) error {
 			nodepoolPods[np] += n.Status.Capacity.Pods().Value()
 		}
 
-		return displayNodepools(dynamicClient, nodepoolCounts, nodepoolCPUs, nodepoolMemBytes, nodepoolPods, os.Stdout, grep)
+		return displayNodepools(dynamicClient, nodepoolCounts, nodepoolCPUs, nodepoolMemBytes, nodepoolPods, os.Stdout, grep, "")
 	}
 
 	if nodepoolsWatchInterval <= 0 {
@@ -116,7 +116,7 @@ func runNodepools(_ *cobra.Command, _ []string) error {
 				nodepoolMemBytes[np] += n.Status.Capacity.Memory().Value()
 				nodepoolPods[np] += n.Status.Capacity.Pods().Value()
 			}
-			if err := displayNodepools(dynamicClient, nodepoolCounts, nodepoolCPUs, nodepoolMemBytes, nodepoolPods, &buf, grep); err != nil {
+			if err := displayNodepools(dynamicClient, nodepoolCounts, nodepoolCPUs, nodepoolMemBytes, nodepoolPods, &buf, grep, ""); err != nil {
 				fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			} else {
 				lastOutput = buf.Bytes()

@@ -24,6 +24,9 @@ import (
 
 var nodesWatchInterval float64
 var nodesGrepPattern string
+var nodesNodepoolFilter string
+var nodesInstanceFilter string
+var nodesArchFilter string
 
 var nodesCmd = &cobra.Command{
 	Use:   "nodes",
@@ -35,6 +38,9 @@ func init() {
 	rootCmd.AddCommand(nodesCmd)
 	nodesCmd.Flags().Float64VarP(&nodesWatchInterval, "watch", "w", 0, "refresh interval in seconds (0 = run once)")
 	nodesCmd.Flags().StringVarP(&nodesGrepPattern, "grep", "g", "", "filter rows by Perl-compatible regexp (matched against the full rendered row)")
+	nodesCmd.Flags().StringVarP(&nodesNodepoolFilter, "nodepool", "p", "", "filter rows by exact nodepool name")
+	nodesCmd.Flags().StringVarP(&nodesInstanceFilter, "instance", "i", "", "filter rows by exact instance type")
+	nodesCmd.Flags().StringVarP(&nodesArchFilter, "arch", "A", "", "filter rows by exact architecture")
 }
 
 func runNodes(_ *cobra.Command, _ []string) error {
@@ -69,7 +75,7 @@ func runNodes(_ *cobra.Command, _ []string) error {
 	}
 
 	if nodesWatchInterval <= 0 {
-		return displayNodes(clientSet, dynamicClient, os.Stdout, grep)
+		return displayNodes(clientSet, dynamicClient, os.Stdout, grep, nodesNodepoolFilter, nodesInstanceFilter, nodesArchFilter)
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -78,7 +84,7 @@ func runNodes(_ *cobra.Command, _ []string) error {
 	var lastOutput []byte
 	for {
 		var buf bytes.Buffer
-		if err := displayNodes(clientSet, dynamicClient, &buf, grep); err != nil {
+		if err := displayNodes(clientSet, dynamicClient, &buf, grep, nodesNodepoolFilter, nodesInstanceFilter, nodesArchFilter); err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		} else {
 			lastOutput = buf.Bytes()
@@ -95,7 +101,7 @@ func runNodes(_ *cobra.Command, _ []string) error {
 	}
 }
 
-func displayNodes(clientSet *kubernetes.Clientset, dynamicClient dynamic.Interface, out io.Writer, grep *regexp2.Regexp) error {
+func displayNodes(clientSet *kubernetes.Clientset, dynamicClient dynamic.Interface, out io.Writer, grep *regexp2.Regexp, nodepoolFilter, instanceFilter, archFilter string) error {
 	nodes, err := clientSet.CoreV1().Nodes().List(context.TODO(), metav1.ListOptions{})
 	if err != nil {
 		return fmt.Errorf("failed to list nodes: %w", err)
@@ -153,6 +159,36 @@ func displayNodes(clientSet *kubernetes.Clientset, dynamicClient dynamic.Interfa
 		})
 	}
 
+	if nodepoolFilter != "" {
+		filtered := rows[:0]
+		for _, r := range rows {
+			if strings.EqualFold(r.nodepool, nodepoolFilter) {
+				filtered = append(filtered, r)
+			}
+		}
+		rows = filtered
+	}
+
+	if instanceFilter != "" {
+		filtered := rows[:0]
+		for _, r := range rows {
+			if strings.EqualFold(r.instance, instanceFilter) {
+				filtered = append(filtered, r)
+			}
+		}
+		rows = filtered
+	}
+
+	if archFilter != "" {
+		filtered := rows[:0]
+		for _, r := range rows {
+			if strings.EqualFold(r.arch, archFilter) {
+				filtered = append(filtered, r)
+			}
+		}
+		rows = filtered
+	}
+
 	if grep != nil {
 		filtered := rows[:0]
 		for _, r := range rows {
@@ -205,12 +241,12 @@ func displayNodes(clientSet *kubernetes.Clientset, dynamicClient dynamic.Interfa
 		fmt.Fprintln(out)
 	}
 
-	return displayNodepools(dynamicClient, nodepoolCounts, nodepoolCPUs, nodepoolMemBytes, nodepoolPods, out, grep)
+	return displayNodepools(dynamicClient, nodepoolCounts, nodepoolCPUs, nodepoolMemBytes, nodepoolPods, out, grep, nodepoolFilter)
 }
 
 // displayNodepools renders the Karpenter nodepool summary table, annotated with
 // per-pool node counts and resource totals derived from the live node list.
-func displayNodepools(dynamicClient dynamic.Interface, nodepoolCounts map[string]int, nodepoolCPUs, nodepoolMemBytes, nodepoolPods map[string]int64, out io.Writer, grep *regexp2.Regexp) error {
+func displayNodepools(dynamicClient dynamic.Interface, nodepoolCounts map[string]int, nodepoolCPUs, nodepoolMemBytes, nodepoolPods map[string]int64, out io.Writer, grep *regexp2.Regexp, nodepoolFilter string) error {
 	nodepoolGVR := schema.GroupVersionResource{Group: "karpenter.sh", Version: "v1", Resource: "nodepools"}
 	npList, err := dynamicClient.Resource(nodepoolGVR).List(context.TODO(), metav1.ListOptions{})
 	if err != nil {
@@ -322,6 +358,16 @@ func displayNodepools(dynamicClient dynamic.Interface, nodepoolCounts map[string
 	sort.Slice(npRows, func(i, j int) bool {
 		return npRows[i].name < npRows[j].name
 	})
+
+	if nodepoolFilter != "" {
+		filtered := npRows[:0]
+		for _, r := range npRows {
+			if strings.EqualFold(r.name, nodepoolFilter) {
+				filtered = append(filtered, r)
+			}
+		}
+		npRows = filtered
+	}
 
 	if grep != nil {
 		filtered := npRows[:0]
