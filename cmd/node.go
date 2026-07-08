@@ -9,6 +9,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"sort"
+	"strings"
 	"syscall"
 	"time"
 
@@ -20,6 +21,8 @@ import (
 )
 
 var nodeWatchInterval float64
+var nodeNamespaceFilters []string
+var nodeKindFilters []string
 
 var nodeCmd = &cobra.Command{
 	Use:   "node <name>",
@@ -31,6 +34,8 @@ var nodeCmd = &cobra.Command{
 func init() {
 	rootCmd.AddCommand(nodeCmd)
 	nodeCmd.Flags().Float64VarP(&nodeWatchInterval, "watch", "w", 0, "refresh interval in seconds (0 = run once)")
+	nodeCmd.Flags().StringArrayVarP(&nodeNamespaceFilters, "namespace", "n", nil, "filter pod rows by namespace (repeatable)")
+	nodeCmd.Flags().StringArrayVarP(&nodeKindFilters, "kind", "k", nil, "filter pod rows by kind (repeatable)")
 }
 
 func runNode(_ *cobra.Command, args []string) error {
@@ -53,7 +58,7 @@ func runNode(_ *cobra.Command, args []string) error {
 	}
 
 	if nodeWatchInterval <= 0 {
-		return displayNode(clientSet, nodeName, os.Stdout)
+		return displayNode(clientSet, nodeName, os.Stdout, nodeNamespaceFilters, nodeKindFilters)
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -62,7 +67,7 @@ func runNode(_ *cobra.Command, args []string) error {
 	var lastOutput []byte
 	for {
 		var buf bytes.Buffer
-		if err := displayNode(clientSet, nodeName, &buf); err != nil {
+		if err := displayNode(clientSet, nodeName, &buf, nodeNamespaceFilters, nodeKindFilters); err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		} else {
 			lastOutput = buf.Bytes()
@@ -79,7 +84,7 @@ func runNode(_ *cobra.Command, args []string) error {
 	}
 }
 
-func displayNode(clientSet *kubernetes.Clientset, nodeName string, out io.Writer) error {
+func displayNode(clientSet *kubernetes.Clientset, nodeName string, out io.Writer, namespaceFilters, kindFilters []string) error {
 	node, err := clientSet.CoreV1().Nodes().Get(context.TODO(), nodeName, metav1.GetOptions{})
 	if err != nil {
 		return fmt.Errorf("failed to get node %q: %w", nodeName, err)
@@ -171,6 +176,22 @@ func displayNode(clientSet *kubernetes.Clientset, nodeName string, out io.Writer
 			nodepool:  nodepool,
 			instance:  instance,
 		})
+	}
+
+	if len(namespaceFilters) > 0 || len(kindFilters) > 0 {
+		nsSet := toLowerSet(namespaceFilters)
+		kindSet := toLowerSet(kindFilters)
+		filtered := rows[:0]
+		for _, r := range rows {
+			if len(nsSet) > 0 && !nsSet[strings.ToLower(r.namespace)] {
+				continue
+			}
+			if len(kindSet) > 0 && !kindSet[strings.ToLower(r.kind)] {
+				continue
+			}
+			filtered = append(filtered, r)
+		}
+		rows = filtered
 	}
 
 	if len(rows) == 0 {
@@ -293,4 +314,12 @@ func eventTypeColor(evType string, width int) string {
 		return colorRed(padded)
 	}
 	return padded
+}
+
+func toLowerSet(values []string) map[string]bool {
+	set := make(map[string]bool, len(values))
+	for _, v := range values {
+		set[strings.ToLower(v)] = true
+	}
+	return set
 }
