@@ -20,9 +20,11 @@ import (
 )
 
 var (
-	imagesNS     string
-	imagesLabels []string
-	imagesAll    bool
+	imagesNS       string
+	imagesLabels   []string
+	imagesAll      bool
+	imagesNode     string
+	imagesNodepool string
 )
 
 var imagesCmd = &cobra.Command{
@@ -36,11 +38,13 @@ func init() {
 	imagesCmd.Flags().StringVarP(&imagesNS, "namespace", "n", "", "namespace (default: all namespaces)")
 	imagesCmd.Flags().StringArrayVarP(&imagesLabels, "label", "l", nil, "label selector; can be repeated (ANDed together)")
 	imagesCmd.Flags().BoolVarP(&imagesAll, "all", "a", false, "list images for all pods")
+	imagesCmd.Flags().StringVarP(&imagesNode, "node", "N", "", "only pods running on this node (exact name or prefix)")
+	imagesCmd.Flags().StringVarP(&imagesNodepool, "nodepool", "p", "", "only pods running on nodes of this Karpenter nodepool")
 }
 
 func runImages(cmd *cobra.Command, args []string) error {
-	if !imagesAll && len(imagesLabels) == 0 && len(args) == 0 {
-		return fmt.Errorf("specify a pod name, svc/<service>, labels with -l, or use -a for all pods")
+	if !imagesAll && len(imagesLabels) == 0 && len(args) == 0 && imagesNode == "" && imagesNodepool == "" {
+		return fmt.Errorf("specify a pod name, svc/<service>, labels with -l, a node with -N, a nodepool with -p, or use -a for all pods")
 	}
 
 	kubeConfig := filepath.Join(homeDir(), ".kube", "config")
@@ -144,7 +148,16 @@ func runImages(cmd *cobra.Command, args []string) error {
 func selectPodsForImages(clientSet *kubernetes.Clientset, args []string) ([]corev1.Pod, error) {
 	ctx := context.TODO()
 
-	if imagesAll {
+	pods, err := selectPodsBase(clientSet, ctx, args)
+	if err != nil {
+		return nil, err
+	}
+
+	return filterPodsByNode(clientSet, ctx, pods)
+}
+
+func selectPodsBase(clientSet *kubernetes.Clientset, ctx context.Context, args []string) ([]corev1.Pod, error) {
+	if imagesAll || (len(args) == 0 && len(imagesLabels) == 0) {
 		list, err := clientSet.CoreV1().Pods(imagesNS).List(ctx, metav1.ListOptions{})
 		if err != nil {
 			return nil, fmt.Errorf("failed to list pods: %w", err)
@@ -163,11 +176,52 @@ func selectPodsForImages(clientSet *kubernetes.Clientset, args []string) ([]core
 
 	arg := args[0]
 
-	if strings.HasPrefix(arg, "svc/") {
-		return selectPodsForService(clientSet, ctx, strings.TrimPrefix(arg, "svc/"))
+	if svcName, ok := strings.CutPrefix(arg, "svc/"); ok {
+		return selectPodsForService(clientSet, ctx, svcName)
 	}
 
 	return selectPodsByName(clientSet, ctx, arg)
+}
+
+// filterPodsByNode narrows pods to those running on the node given with -N
+// and/or on nodes belonging to the Karpenter nodepool given with -p.
+func filterPodsByNode(clientSet *kubernetes.Clientset, ctx context.Context, pods []corev1.Pod) ([]corev1.Pod, error) {
+	if imagesNode == "" && imagesNodepool == "" {
+		return pods, nil
+	}
+
+	var poolNodes map[string]bool
+	if imagesNodepool != "" {
+		list, err := clientSet.CoreV1().Nodes().List(ctx, metav1.ListOptions{
+			LabelSelector: "karpenter.sh/nodepool=" + imagesNodepool,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to list nodes for nodepool %q: %w", imagesNodepool, err)
+		}
+		if len(list.Items) == 0 {
+			return nil, fmt.Errorf("no nodes found for nodepool %q", imagesNodepool)
+		}
+		poolNodes = make(map[string]bool, len(list.Items))
+		for _, n := range list.Items {
+			poolNodes[n.Name] = true
+		}
+	}
+
+	filtered := pods[:0]
+	for _, pod := range pods {
+		nodeName := pod.Spec.NodeName
+		if nodeName == "" {
+			continue
+		}
+		if imagesNode != "" && nodeName != imagesNode && !strings.HasPrefix(nodeName, imagesNode) {
+			continue
+		}
+		if poolNodes != nil && !poolNodes[nodeName] {
+			continue
+		}
+		filtered = append(filtered, pod)
+	}
+	return filtered, nil
 }
 
 func selectPodsForService(clientSet *kubernetes.Clientset, ctx context.Context, svcName string) ([]corev1.Pod, error) {

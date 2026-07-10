@@ -133,6 +133,10 @@ nginx:1.27                                  amd64, arm64, arm
 | `kt images svc/<service>` | Resolves the service's pod selector, then lists images for all matching pods |
 | `kt images -l key=value` | Label selector; repeat `-l` to AND multiple selectors together |
 | `kt images -a` | All pods in the namespace (or cluster-wide if no `-n` is given) |
+| `kt images -N <node>` | All pods running on the given node (exact name or prefix) |
+| `kt images -p <nodepool>` | All pods running on nodes of the given Karpenter nodepool |
+
+`-N` and `-p` can also be combined with any of the other selectors to narrow them down, e.g. `kt images -l app=api -p graviton`.
 
 #### Options
 
@@ -141,3 +145,5 @@ nginx:1.27                                  amd64, arm64, arm
 | `--namespace` | `-n` | Limit to a specific namespace (default: all namespaces) |
 | `--label` | `-l` | Label selector; can be repeated (ANDed together) |
 | `--all` | `-a` | List images for all pods |
+| `--node` | `-N` | Only pods running on this node (exact name or prefix) |
+| `--nodepool` | `-p` | Only pods running on nodes of this Karpenter nodepool |
