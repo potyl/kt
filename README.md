@@ -59,6 +59,17 @@ default-arm64  default         1     8   30Gi   110  True   31h
 
 The Nodepools section requires Karpenter (`karpenter.sh/v1`) and is silently skipped if not installed. Node counts, CPU, memory, and pod capacity in the summary are aggregated from the live node list.
 
+#### Flags
+
+| Flag | Short | Description |
+| --- | --- | --- |
+| `--arch` | `-A` | Filter rows by exact architecture |
+| `--autoscaler` | `-a` | Filter rows by exact autoscaler (`karpenter`, `managed`, `autoscaler`) |
+| `--grep` | `-g` | Filter rows by Perl-compatible regexp (matched against the full rendered row) |
+| `--instance` | `-i` | Filter rows by exact instance type |
+| `--nodepool` | `-p` | Filter rows by exact nodepool name |
+| `--watch` | `-w` | Refresh interval in seconds (0 = run once) |
+
 ---
 
 ### `kt node <name>`
