@@ -27,6 +27,7 @@ var nodesGrepPattern string
 var nodesNodepoolFilter string
 var nodesInstanceFilter string
 var nodesArchFilter string
+var nodesAutoscalerFilter string
 
 var nodesCmd = &cobra.Command{
 	Use:   "nodes",
@@ -41,6 +42,7 @@ func init() {
 	nodesCmd.Flags().StringVarP(&nodesNodepoolFilter, "nodepool", "p", "", "filter rows by exact nodepool name")
 	nodesCmd.Flags().StringVarP(&nodesInstanceFilter, "instance", "i", "", "filter rows by exact instance type")
 	nodesCmd.Flags().StringVarP(&nodesArchFilter, "arch", "A", "", "filter rows by exact architecture")
+	nodesCmd.Flags().StringVarP(&nodesAutoscalerFilter, "autoscaler", "a", "", "filter rows by exact autoscaler (karpenter, managed, autoscaler)")
 }
 
 func runNodes(_ *cobra.Command, _ []string) error {
@@ -75,7 +77,7 @@ func runNodes(_ *cobra.Command, _ []string) error {
 	}
 
 	if nodesWatchInterval <= 0 {
-		return displayNodes(clientSet, dynamicClient, os.Stdout, grep, nodesNodepoolFilter, nodesInstanceFilter, nodesArchFilter)
+		return displayNodes(clientSet, dynamicClient, os.Stdout, grep, nodesNodepoolFilter, nodesInstanceFilter, nodesArchFilter, nodesAutoscalerFilter)
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -84,7 +86,7 @@ func runNodes(_ *cobra.Command, _ []string) error {
 	var lastOutput []byte
 	for {
 		var buf bytes.Buffer
-		if err := displayNodes(clientSet, dynamicClient, &buf, grep, nodesNodepoolFilter, nodesInstanceFilter, nodesArchFilter); err != nil {
+		if err := displayNodes(clientSet, dynamicClient, &buf, grep, nodesNodepoolFilter, nodesInstanceFilter, nodesArchFilter, nodesAutoscalerFilter); err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		} else {
 			lastOutput = buf.Bytes()
@@ -101,7 +103,7 @@ func runNodes(_ *cobra.Command, _ []string) error {
 	}
 }
 
-func displayNodes(clientSet *kubernetes.Clientset, dynamicClient dynamic.Interface, out io.Writer, grep *regexp2.Regexp, nodepoolFilter, instanceFilter, archFilter string) error {
+func displayNodes(clientSet *kubernetes.Clientset, dynamicClient dynamic.Interface, out io.Writer, grep *regexp2.Regexp, nodepoolFilter, instanceFilter, archFilter, autoscalerFilter string) error {
 	nodes, err := clientSet.CoreV1().Nodes().List(context.TODO(), metav1.ListOptions{})
 	if err != nil {
 		return fmt.Errorf("failed to list nodes: %w", err)
@@ -183,6 +185,16 @@ func displayNodes(clientSet *kubernetes.Clientset, dynamicClient dynamic.Interfa
 		filtered := rows[:0]
 		for _, r := range rows {
 			if strings.EqualFold(r.arch, archFilter) {
+				filtered = append(filtered, r)
+			}
+		}
+		rows = filtered
+	}
+
+	if autoscalerFilter != "" {
+		filtered := rows[:0]
+		for _, r := range rows {
+			if strings.EqualFold(r.autoscaler, autoscalerFilter) {
 				filtered = append(filtered, r)
 			}
 		}
