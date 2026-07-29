@@ -125,6 +125,9 @@ func displayNodes(clientSet *kubernetes.Clientset, dynamicClient dynamic.Interfa
 	for _, n := range nodes.Items {
 		np := n.Labels["karpenter.sh/nodepool"]
 		if np == "" {
+			np = n.Labels["node.group"]
+		}
+		if np == "" {
 			np = "<none>"
 		}
 		nodepoolCounts[np]++
@@ -136,7 +139,7 @@ func displayNodes(clientSet *kubernetes.Clientset, dynamicClient dynamic.Interfa
 		autoscaler := "-"
 		if n.Labels["karpenter.sh/nodepool"] != "" {
 			autoscaler = "karpenter"
-		} else if n.Labels["eks.amazonaws.com/nodegroup"] != "" {
+		} else if n.Labels["node.group"] != "" {
 			autoscaler = "managed"
 		} else {
 			for k := range n.Annotations {
