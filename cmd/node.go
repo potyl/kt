@@ -24,6 +24,7 @@ var nodeWatchInterval float64
 var nodeNamespaceFilters []string
 var nodeKindFilters []string
 var nodePodsOnly bool
+var nodeShowLabels bool
 
 var nodeCmd = &cobra.Command{
 	Use:   "node <name>",
@@ -38,6 +39,8 @@ func init() {
 	nodeCmd.Flags().StringArrayVarP(&nodeNamespaceFilters, "namespace", "n", nil, "filter pod rows by namespace (repeatable)")
 	nodeCmd.Flags().StringArrayVarP(&nodeKindFilters, "kind", "k", nil, "filter pod rows by kind (repeatable)")
 	nodeCmd.Flags().BoolVarP(&nodePodsOnly, "pods", "p", false, "only display the pods table, hiding node info and events")
+	nodeCmd.Flags().BoolVarP(&nodeShowLabels, "labels", "l", false, "also display the node labels in the node info (verbose)")
+	nodeCmd.MarkFlagsMutuallyExclusive("pods", "labels")
 }
 
 func runNode(_ *cobra.Command, args []string) error {
@@ -60,7 +63,7 @@ func runNode(_ *cobra.Command, args []string) error {
 	}
 
 	if nodeWatchInterval <= 0 {
-		return displayNode(clientSet, nodeName, os.Stdout, nodeNamespaceFilters, nodeKindFilters, nodePodsOnly)
+		return displayNode(clientSet, nodeName, os.Stdout, nodeNamespaceFilters, nodeKindFilters, nodePodsOnly, nodeShowLabels)
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -69,7 +72,7 @@ func runNode(_ *cobra.Command, args []string) error {
 	var lastOutput []byte
 	for {
 		var buf bytes.Buffer
-		if err := displayNode(clientSet, nodeName, &buf, nodeNamespaceFilters, nodeKindFilters, nodePodsOnly); err != nil {
+		if err := displayNode(clientSet, nodeName, &buf, nodeNamespaceFilters, nodeKindFilters, nodePodsOnly, nodeShowLabels); err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		} else {
 			lastOutput = buf.Bytes()
@@ -86,7 +89,7 @@ func runNode(_ *cobra.Command, args []string) error {
 	}
 }
 
-func displayNode(clientSet *kubernetes.Clientset, nodeName string, out io.Writer, namespaceFilters, kindFilters []string, podsOnly bool) error {
+func displayNode(clientSet *kubernetes.Clientset, nodeName string, out io.Writer, namespaceFilters, kindFilters []string, podsOnly, showLabels bool) error {
 	node, err := clientSet.CoreV1().Nodes().Get(context.TODO(), nodeName, metav1.GetOptions{})
 	if err != nil {
 		return fmt.Errorf("failed to get node %q: %w", nodeName, err)
@@ -133,23 +136,20 @@ func displayNode(clientSet *kubernetes.Clientset, nodeName string, out io.Writer
 		fmt.Fprintf(out, "%s %s\n", label("Kernel Version:"), node.Status.NodeInfo.KernelVersion)
 		fmt.Fprintf(out, "%s %s\n", label("Container Runtime:"), node.Status.NodeInfo.ContainerRuntimeVersion)
 		fmt.Fprintf(out, "%s %s\n", label("Kubelet Version:"), node.Status.NodeInfo.KubeletVersion)
+		fmt.Fprintf(out, "%s %s\n", label("Node Pool:"), nodeGroupOrPool(node))
+		fmt.Fprintf(out, "%s %s\n", label("Autoscaler:"), nodeAutoscaler(node))
 
-		if len(node.Spec.Taints) == 0 {
-			fmt.Fprintf(out, "%s %s\n", label("Taints:"), "<none>")
-		} else {
-			for i, t := range node.Spec.Taints {
-				var taintStr string
-				if t.Value != "" {
-					taintStr = fmt.Sprintf("%s=%s:%s", t.Key, t.Value, t.Effect)
-				} else {
-					taintStr = fmt.Sprintf("%s:%s", t.Key, t.Effect)
-				}
-				if i == 0 {
-					fmt.Fprintf(out, "%s %s\n", label("Taints:"), taintStr)
-				} else {
-					fmt.Fprintf(out, "%s %s\n", label(""), taintStr)
-				}
+		taints := make([]string, 0, len(node.Spec.Taints))
+		for _, t := range node.Spec.Taints {
+			if t.Value != "" {
+				taints = append(taints, fmt.Sprintf("%s=%s:%s", t.Key, t.Value, t.Effect))
+			} else {
+				taints = append(taints, fmt.Sprintf("%s:%s", t.Key, t.Effect))
 			}
+		}
+		printMultiline(out, "Taints:", taints)
+		if showLabels {
+			printMultiline(out, "Labels:", sortedLabels(node.Labels))
 		}
 		fmt.Fprintln(out)
 	}
@@ -325,6 +325,35 @@ func eventTypeColor(evType string, width int) string {
 		return colorRed(padded)
 	}
 	return padded
+}
+
+// sortedLabels renders a label map as sorted key=value strings.
+func sortedLabels(labels map[string]string) []string {
+	out := make([]string, 0, len(labels))
+	for k, v := range labels {
+		out = append(out, fmt.Sprintf("%s=%s", k, v))
+	}
+	sort.Strings(out)
+	return out
+}
+
+// printMultiline prints a labeled block where only the first line carries the
+// title; extra values align under it. Empty values render as <none>.
+func printMultiline(out io.Writer, title string, values []string) {
+	label := func(s string) string {
+		return colorBlue(fmt.Sprintf("%-24s", s))
+	}
+	if len(values) == 0 {
+		fmt.Fprintf(out, "%s %s\n", label(title), "<none>")
+		return
+	}
+	for i, v := range values {
+		if i == 0 {
+			fmt.Fprintf(out, "%s %s\n", label(title), v)
+		} else {
+			fmt.Fprintf(out, "%s %s\n", label(""), v)
+		}
+	}
 }
 
 func toLowerSet(values []string) map[string]bool {

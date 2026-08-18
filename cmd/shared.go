@@ -8,8 +8,38 @@ import (
 	"time"
 
 	"github.com/fatih/color"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/tools/clientcmd"
 )
+
+// nodeGroupOrPool returns the Karpenter nodepool of the node, falling back to
+// the managed nodegroup and <none> when neither applies.
+func nodeGroupOrPool(node *corev1.Node) string {
+	if np := node.Labels["karpenter.sh/nodepool"]; np != "" {
+		return np
+	}
+	if ng := node.Labels["node.group"]; ng != "" {
+		return ng
+	}
+	return "<none>"
+}
+
+// nodeAutoscaler identifies which autoscaler manages the node: karpenter,
+// managed (nodegroup), autoscaler (cluster-autoscaler) or "-" for none.
+func nodeAutoscaler(node *corev1.Node) string {
+	if node.Labels["karpenter.sh/nodepool"] != "" {
+		return "karpenter"
+	}
+	if node.Labels["node.group"] != "" {
+		return "managed"
+	}
+	for k := range node.Annotations {
+		if strings.HasPrefix(k, "cluster-autoscaler.kubernetes.io/") {
+			return "autoscaler"
+		}
+	}
+	return "-"
+}
 
 var (
 	colorRed   = color.New(color.FgRed, color.Bold).SprintFunc()

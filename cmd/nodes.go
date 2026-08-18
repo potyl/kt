@@ -123,37 +123,17 @@ func displayNodes(clientSet *kubernetes.Clientset, dynamicClient dynamic.Interfa
 	nodepoolPods := map[string]int64{}
 	rows := make([]nodeRow, 0, len(nodes.Items))
 	for _, n := range nodes.Items {
-		np := n.Labels["karpenter.sh/nodepool"]
-		if np == "" {
-			np = n.Labels["node.group"]
-		}
-		if np == "" {
-			np = "<none>"
-		}
+		np := nodeGroupOrPool(&n)
 		nodepoolCounts[np]++
 		nodepoolCPUs[np] += n.Status.Capacity.Cpu().Value()
 		nodepoolMemBytes[np] += n.Status.Capacity.Memory().Value()
 		nodepoolPods[np] += n.Status.Capacity.Pods().Value()
 		memBytes := n.Status.Capacity.Memory().Value()
 
-		autoscaler := "-"
-		if n.Labels["karpenter.sh/nodepool"] != "" {
-			autoscaler = "karpenter"
-		} else if n.Labels["node.group"] != "" {
-			autoscaler = "managed"
-		} else {
-			for k := range n.Annotations {
-				if strings.HasPrefix(k, "cluster-autoscaler.kubernetes.io/") {
-					autoscaler = "autoscaler"
-					break
-				}
-			}
-		}
-
 		rows = append(rows, nodeRow{
 			name:       n.Name,
 			arch:       n.Labels["kubernetes.io/arch"],
-			autoscaler: autoscaler,
+			autoscaler: nodeAutoscaler(&n),
 			nodepool:   np,
 			instance:   n.Labels["node.kubernetes.io/instance-type"],
 			cpus:       fmt.Sprintf("%d", n.Status.Capacity.Cpu().Value()),
