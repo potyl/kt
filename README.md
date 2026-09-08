@@ -116,6 +116,8 @@ Use `--watch/-w <seconds>` to auto-refresh at the given interval.
 | `--kind <kind>` | `-k` | Filter pod rows by kind (repeatable) |
 | `--pods` | `-p` | Only display the pods table |
 | `--labels` | `-l` | Also display the node labels |
+| `--evictable` | `-e` | Hide DaemonSet pods and finished pods (`Succeeded`/`Failed`); if the table is empty the node can be evicted |
+
 ---
 
 ### `kt nodepools`
