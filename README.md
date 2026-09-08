@@ -109,6 +109,13 @@ Warning  NodeNotReady     kubelet  2m         Node ip-10-0-1-100... status is no
 
 Use `--watch/-w <seconds>` to auto-refresh at the given interval.
 
+| Flag | Short | Description |
+|------|-------|-------------|
+| `--watch <seconds>` | `-w` | Auto-refresh at the given interval |
+| `--namespace <ns>` | `-n` | Filter pod rows by namespace (repeatable) |
+| `--kind <kind>` | `-k` | Filter pod rows by kind (repeatable) |
+| `--pods` | `-p` | Only display the pods table |
+| `--labels` | `-l` | Also display the node labels |
 ---
 
 ### `kt nodepools`
