@@ -25,6 +25,7 @@ var nodeNamespaceFilters []string
 var nodeKindFilters []string
 var nodePodsOnly bool
 var nodeShowLabels bool
+var nodeEvictable bool
 
 var nodeCmd = &cobra.Command{
 	Use:   "node <name>",
@@ -40,6 +41,7 @@ func init() {
 	nodeCmd.Flags().StringArrayVarP(&nodeKindFilters, "kind", "k", nil, "filter pod rows by kind (repeatable)")
 	nodeCmd.Flags().BoolVarP(&nodePodsOnly, "pods", "p", false, "only display the pods table, hiding node info and events")
 	nodeCmd.Flags().BoolVarP(&nodeShowLabels, "labels", "l", false, "also display the node labels in the node info (verbose)")
+	nodeCmd.Flags().BoolVarP(&nodeEvictable, "evictable", "e", false, "hide DaemonSet pods and finished pods (Succeeded/Failed); an empty table means the node can be evicted")
 	nodeCmd.MarkFlagsMutuallyExclusive("pods", "labels")
 }
 
@@ -63,7 +65,7 @@ func runNode(_ *cobra.Command, args []string) error {
 	}
 
 	if nodeWatchInterval <= 0 {
-		return displayNode(clientSet, nodeName, os.Stdout, nodeNamespaceFilters, nodeKindFilters, nodePodsOnly, nodeShowLabels)
+		return displayNode(clientSet, nodeName, os.Stdout, nodeNamespaceFilters, nodeKindFilters, nodePodsOnly, nodeShowLabels, nodeEvictable)
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -72,7 +74,7 @@ func runNode(_ *cobra.Command, args []string) error {
 	var lastOutput []byte
 	for {
 		var buf bytes.Buffer
-		if err := displayNode(clientSet, nodeName, &buf, nodeNamespaceFilters, nodeKindFilters, nodePodsOnly, nodeShowLabels); err != nil {
+		if err := displayNode(clientSet, nodeName, &buf, nodeNamespaceFilters, nodeKindFilters, nodePodsOnly, nodeShowLabels, nodeEvictable); err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		} else {
 			lastOutput = buf.Bytes()
@@ -89,7 +91,7 @@ func runNode(_ *cobra.Command, args []string) error {
 	}
 }
 
-func displayNode(clientSet *kubernetes.Clientset, nodeName string, out io.Writer, namespaceFilters, kindFilters []string, podsOnly, showLabels bool) error {
+func displayNode(clientSet *kubernetes.Clientset, nodeName string, out io.Writer, namespaceFilters, kindFilters []string, podsOnly, showLabels, evictable bool) error {
 	node, err := clientSet.CoreV1().Nodes().Get(context.TODO(), nodeName, metav1.GetOptions{})
 	if err != nil {
 		return fmt.Errorf("failed to get node %q: %w", nodeName, err)
@@ -171,6 +173,9 @@ func displayNode(clientSet *kubernetes.Clientset, nodeName string, out io.Writer
 
 	rows := make([]podRow, 0, len(pods.Items))
 	for _, pod := range pods.Items {
+		if evictable && !blocksEviction(pod) {
+			continue
+		}
 		rows = append(rows, podRow{
 			namespace: pod.Namespace,
 			name:      pod.Name,
@@ -202,7 +207,11 @@ func displayNode(clientSet *kubernetes.Clientset, nodeName string, out io.Writer
 	}
 
 	if len(rows) == 0 {
-		fmt.Fprintln(out, "No pods running on this node.")
+		if evictable {
+			fmt.Fprintln(out, "No pods blocking eviction on this node.")
+		} else {
+			fmt.Fprintln(out, "No pods running on this node.")
+		}
 		return nil
 	}
 
@@ -354,6 +363,20 @@ func printMultiline(out io.Writer, title string, values []string) {
 			fmt.Fprintf(out, "%s %s\n", label(""), v)
 		}
 	}
+}
+
+// blocksEviction reports whether a pod would prevent the node from being
+// evicted: DaemonSet pods are recreated on every node and finished pods
+// (Succeeded/Failed, e.g. completed Jobs) no longer run anything.
+func blocksEviction(pod corev1.Pod) bool {
+	if podKind(pod) == "DaemonSet" {
+		return false
+	}
+	switch pod.Status.Phase {
+	case corev1.PodSucceeded, corev1.PodFailed:
+		return false
+	}
+	return true
 }
 
 func toLowerSet(values []string) map[string]bool {
