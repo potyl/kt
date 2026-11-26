@@ -111,7 +111,7 @@ compile:
 ifndef file
 	$(error "file" variable is not defined)
 endif
-	go build -o ${file} ${LDFLAGS} main.go
+	go build -o ${file} ${LDFLAGS} .
 
 .PHONY: tests
 tests:
