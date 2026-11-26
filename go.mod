@@ -1,6 +1,6 @@
 module kt
 
-go 1.25.0
+go 1.27.4
 
 require (
 	github.com/dlclark/regexp2 v1.12.0
