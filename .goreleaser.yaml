@@ -8,7 +8,7 @@ before:
 
 builds:
   - id: kt
-    main: ./main.go
+    main: .
     binary: kt
     ldflags:
       - -s -w -X main.version={{.Version}}
